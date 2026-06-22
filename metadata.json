@@ -1,0 +1,6 @@
+{
+  "name": "Echo Chat",
+  "description": "Echo Chat - Secure Group Chat with premium themes, recovery pairing, call simulation, and lock features.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
