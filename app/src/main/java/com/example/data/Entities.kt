@@ -9,7 +9,8 @@ import java.util.Date
 data class User(
     val email: String,
     val name: String,
-    val photoUrl: String? = ""
+    val photoUrl: String? = "",
+    val statusMessage: String? = ""
 )
 
 @JsonClass(generateAdapter = true)
@@ -77,7 +78,9 @@ data class ChatMessage(
     val imageUrl: String? = null,
     val isPoll: Boolean = false,
     val pollQuestion: String? = null,
-    val pollOptions: List<String> = emptyList()
+    val pollOptions: List<String> = emptyList(),
+    val isUnviewedServerMessage: Boolean = false,
+    val deliveryStatus: String = "sent" // "sent", "delivered", "seen"
 )
 
 @JsonClass(generateAdapter = true)
@@ -176,4 +179,10 @@ data class FirebaseSdp(
 data class FirebaseCandidates(
     val caller: Map<String, Map<String, Any>>? = null,
     val callee: Map<String, Map<String, Any>>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class PremiumCode(
+    val code: Double,
+    val color: String
 )

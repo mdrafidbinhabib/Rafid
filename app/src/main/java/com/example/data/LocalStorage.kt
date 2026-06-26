@@ -260,6 +260,56 @@ object LocalStorage {
         current.remove(email)
         getPrefs(context).edit().putStringSet("DELETED_CONVERSATIONS", current).apply()
     }
+
+    fun getVerifiedUsers(context: Context): Map<String, String> {
+        val json = getPrefs(context).getString("VERIFIED_USERS_JSON", null) ?: return emptyMap()
+        return try {
+            val type = Types.newParameterizedType(Map::class.java, String::class.java, String::class.java)
+            moshi.adapter<Map<String, String>>(type).fromJson(json) ?: emptyMap()
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    fun saveVerifiedUser(context: Context, email: String, color: String) {
+        val current = getVerifiedUsers(context).toMutableMap()
+        current[email] = color
+        val type = Types.newParameterizedType(Map::class.java, String::class.java, String::class.java)
+        val json = moshi.adapter<Map<String, String>>(type).toJson(current)
+        getPrefs(context).edit().putString("VERIFIED_USERS_JSON", json).apply()
+    }
+
+    fun removeVerifiedUser(context: Context, email: String) {
+        val current = getVerifiedUsers(context).toMutableMap()
+        current.remove(email)
+        val type = Types.newParameterizedType(Map::class.java, String::class.java, String::class.java)
+        val json = moshi.adapter<Map<String, String>>(type).toJson(current)
+        getPrefs(context).edit().putString("VERIFIED_USERS_JSON", json).apply()
+    }
+
+    fun getLocalMessages(context: Context, chatKey: String): List<ChatMessage> {
+        val json = getPrefs(context).getString("LOCAL_MSGS_$chatKey", null) ?: return emptyList()
+        return try {
+            val type = Types.newParameterizedType(List::class.java, ChatMessage::class.java)
+            moshi.adapter<List<ChatMessage>>(type).fromJson(json) ?: emptyList()
+        } catch (e: Exception) {
+            emptyList()
+        }
+    }
+
+    fun saveLocalMessages(context: Context, chatKey: String, messages: List<ChatMessage>) {
+        val type = Types.newParameterizedType(List::class.java, ChatMessage::class.java)
+        val json = moshi.adapter<List<ChatMessage>>(type).toJson(messages)
+        getPrefs(context).edit().putString("LOCAL_MSGS_$chatKey", json).apply()
+    }
+
+    fun hasSeenTemporaryChatWarning(context: Context, email: String): Boolean {
+        return getPrefs(context).getBoolean("SEEN_TEMP_WARNING_$email", false)
+    }
+
+    fun markSeenTemporaryChatWarning(context: Context, email: String) {
+        getPrefs(context).edit().putBoolean("SEEN_TEMP_WARNING_$email", true).apply()
+    }
 }
 
 @JsonClass(generateAdapter = true)

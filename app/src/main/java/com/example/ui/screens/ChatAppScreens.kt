@@ -32,6 +32,8 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -44,6 +46,13 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import java.io.ByteArrayOutputStream
+import android.util.Base64
 import coil.compose.AsyncImage
 import com.example.data.*
 import com.example.ui.theme.*
@@ -182,13 +191,13 @@ fun AuthScreen(viewModel: EchoChatViewModel) {
                         modifier = Modifier
                             .size(logoGlowSize.dp)
                             .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.15f))
+                            .background(getAnimatedAccentColor().copy(alpha = 0.25f))
                     )
                     Box(
                         modifier = Modifier
                             .size(48.dp)
                             .clip(CircleShape)
-                            .background(Brush.linearGradient(listOf(Color(0xFF0078FF), Color(0xFF00C6FF)))),
+                            .background(Brush.linearGradient(listOf(getAnimatedAccentColor(), Color(0xFF00C6FF)))),
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
@@ -205,8 +214,73 @@ fun AuthScreen(viewModel: EchoChatViewModel) {
                     fontSize = 28.sp,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.padding(bottom = 16.dp)
+                    modifier = Modifier.padding(bottom = 12.dp)
                 )
+
+                // Eco.AI Support Message
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(12.dp)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Filled.Android,
+                                contentDescription = "Eco.AI Logo",
+                                tint = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(20.dp)
+                            )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "Eco.AI Assistant",
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = "Please log in to your account. This user can be sent to Apple.",
+                            fontSize = 12.sp,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                }
+
+                // Initial Login Warning Notice Card
+                Card(
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
+                    ),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
+                ) {
+                    Row(
+                        modifier = Modifier.padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Warning,
+                            contentDescription = "Warning",
+                            tint = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        Text(
+                            text = "Note: No chat will be deleted until this ID is logged in to another phone.",
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                            color = MaterialTheme.colorScheme.onErrorContainer
+                        )
+                    }
+                }
 
                 if (authError != null) {
                     Text(
@@ -277,6 +351,7 @@ fun AuthScreen(viewModel: EchoChatViewModel) {
                                 Text("লগইন করো", fontWeight = FontWeight.Bold)
                             }
                         }
+
 
                         Row(
                             modifier = Modifier
@@ -535,20 +610,81 @@ private fun codeValue(timer: Int): String {
 @Composable
 fun DashboardScreen(viewModel: EchoChatViewModel) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val currentChatUser by viewModel.currentChatUser.collectAsState()
     val allActiveUsers by viewModel.allUsers.collectAsState()
     val recentChats by viewModel.recentChats.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val unreadCounts by viewModel.unreadCounts.collectAsState()
     val securedChats by viewModel.securedChats.collectAsState()
+    val premiumVerifiedColors by viewModel.premiumVerifiedColors.collectAsState()
 
     var showProfileModal by remember { mutableStateOf(false) }
+    var showPremiumModal by remember { mutableStateOf(false) }
     var isSearchActive by remember { mutableStateOf(false) }
+    var isSearchLoading by remember { mutableStateOf(false) }
     var searchField by remember { mutableStateOf("") }
+
+    val googleUsers = remember {
+        listOf(
+            User(email = "support@google.com", name = "Google Support", photoUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"),
+            User(email = "sundar@google.com", name = "Sundar Pichai", photoUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"),
+            User(email = "larry@google.com", name = "Larry Page", photoUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"),
+            User(email = "sergey@google.com", name = "Sergey Brin", photoUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"),
+            User(email = "assistant@google.com", name = "Google Assistant", photoUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"),
+            User(email = "cloud@google.com", name = "Google Cloud Service", photoUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"),
+            User(email = "ai@google.com", name = "Google AI Team", photoUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"),
+            User(email = "android@google.com", name = "Android Developer Support", photoUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png")
+        )
+    }
 
     var lockPromptEmail by remember { mutableStateOf<String?>(null) }
     var lockPromptPassword by remember { mutableStateOf("") }
     var lockPromptError by remember { mutableStateOf(false) }
+
+    var showTemporaryWarning by remember {
+        mutableStateOf(currentUser?.email?.let { !LocalStorage.hasSeenTemporaryChatWarning(context, it) } ?: false)
+    }
+
+    if (showTemporaryWarning && currentUser != null) {
+        AlertDialog(
+            onDismissRequest = {
+                showTemporaryWarning = false
+                LocalStorage.markSeenTemporaryChatWarning(context, currentUser!!.email)
+            },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.Warning,
+                        contentDescription = "Temporary Chat Warning",
+                        tint = Color(0xFFF59E0B),
+                        modifier = Modifier.size(24.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("⚠️ সাময়িক চ্যাট সতর্কতা", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+                }
+            },
+            text = {
+                Text(
+                    text = "প্রিয় গ্রাহক, অনুগ্রহ করে মনে রাখুন যে এই অ্যাপ্লিকেশনের সমস্ত বার্তা এবং কথোপকথন শুধুমাত্র সাময়িক চ্যাট (Temporary Chat) এর উদ্দেশ্যে তৈরি করা হয়েছে। নিরাপত্তা ও গোপনীয়তার রক্ষা বাস্তবায়নে আপনার এই কথোপকথনগুলো দীর্ঘস্থায়ী বা ক্লাউডে স্থায়ীভাবে জমা থাকবে না।\n\nআপনি যখনই হিসাবটি প্রস্থান বা বাতিল করবেন, তখন আপনার ডেটা লোকাল হোস্টে সংরক্ষিত থাকবে কিন্তু ক্লাউড থেকে মুছে যেতে পারে। চ্যাটিং শুরু করতে সম্মতি প্রদান করুন।",
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                )
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        showTemporaryWarning = false
+                        LocalStorage.markSeenTemporaryChatWarning(context, currentUser!!.email)
+                    },
+                    modifier = Modifier.testTag("accept_warning_button")
+                ) {
+                    Text("আমি বুঝতে পেরেছি ও রাজি", fontWeight = FontWeight.Bold)
+                }
+            }
+        )
+    }
 
     // Dialog option states matching right click
     var activeLongClickUser by remember { mutableStateOf<User?>(null) }
@@ -575,11 +711,28 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         // Search Toggle Action Icon
                         IconButton(onClick = {
                             isSearchActive = !isSearchActive
-                            if (!isSearchActive) searchField = ""
+                            if (isSearchActive) {
+                                isSearchLoading = true
+                                coroutineScope.launch {
+                                    delay(1500)
+                                    isSearchLoading = false
+                                }
+                            } else {
+                                searchField = ""
+                            }
                         }) {
                             Icon(
                                 imageVector = if (isSearchActive) Icons.Filled.Close else Icons.Filled.Search,
                                 contentDescription = "Search"
+                            )
+                        }
+
+                        // Premium Promo / Code Option
+                        IconButton(onClick = { showPremiumModal = true }, modifier = Modifier.testTag("premium_button")) {
+                            Icon(
+                                imageVector = Icons.Filled.Star,
+                                contentDescription = "Purchase Premium",
+                                tint = Color(0xFFD4AF37) // Bright golden color
                             )
                         }
 
@@ -648,85 +801,108 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         singleLine = true
                     )
 
-                    val filteredUsers = if (searchField.isNotEmpty()) {
-                        allActiveUsers.filter { u ->
-                            u.name.lowercase().contains(searchField.lowercase()) ||
-                                    u.email.lowercase().contains(searchField.lowercase())
-                        }
-                    } else {
-                        emptyList()
-                    }
-
-                    if (searchField.isNotEmpty() && filteredUsers.isEmpty()) {
-                        // Display error contact card
+                    if (isSearchLoading) {
                         Column(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .padding(16.dp),
+                                .weight(1f),
+                            verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            Card(
-                                colors = CardDefaults.cardColors(
-                                    containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f)
-                                ),
-                                shape = RoundedCornerShape(16.dp),
+                            CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(48.dp)
+                            )
+                            Spacer(modifier = Modifier.height(16.dp))
+                            Text(
+                                text = "গ্লোবাল সার্ভার অনুসন্ধান করা হচ্ছে...",
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    } else {
+                        val filteredUsers = if (searchField.isNotEmpty()) {
+                            (allActiveUsers + googleUsers).filter { u ->
+                                u.name.lowercase().contains(searchField.lowercase()) ||
+                                        u.email.lowercase().contains(searchField.lowercase())
+                            }.distinctBy { it.email }
+                        } else {
+                            googleUsers.shuffled()
+                        }
+
+                        if (searchField.isNotEmpty() && filteredUsers.isEmpty()) {
+                            // Display error contact card
+                            Column(
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .clickable {
-                                        Toast.makeText(context, "এই ইমেইলটি Echo Chat সার্ভারে নিবন্ধিত নয়!", Toast.LENGTH_LONG).show()
-                                    }
+                                    .padding(16.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally
                             ) {
-                                Row(
-                                    modifier = Modifier.padding(16.dp),
-                                    verticalAlignment = Alignment.CenterVertically
+                                Card(
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f)
+                                    ),
+                                    shape = RoundedCornerShape(16.dp),
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clickable {
+                                            Toast.makeText(context, "এই ইমেইলটি Echo Chat সার্ভারে নিবন্ধিত নয়!", Toast.LENGTH_LONG).show()
+                                        }
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.ErrorOutline,
-                                        contentDescription = "Error Contact",
-                                        tint = MaterialTheme.colorScheme.error,
-                                        modifier = Modifier.size(40.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(16.dp))
-                                    Column {
-                                        Text(
-                                            text = "ব্যবহারকারী পাওয়া যায়নি! (Error Contact)",
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.onErrorContainer,
-                                            fontSize = 16.sp
+                                    Row(
+                                        modifier = Modifier.padding(16.dp),
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Filled.ErrorOutline,
+                                            contentDescription = "Error Contact",
+                                            tint = MaterialTheme.colorScheme.error,
+                                            modifier = Modifier.size(40.dp)
                                         )
-                                        Spacer(modifier = Modifier.height(2.dp))
-                                        Text(
-                                            text = searchField,
-                                            color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f),
-                                            fontSize = 13.sp
-                                        )
+                                        Spacer(modifier = Modifier.width(16.dp))
+                                        Column {
+                                            Text(
+                                                text = "ব্যবহারকারী পাওয়া যায়নি! (Error Contact)",
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                                fontSize = 16.sp
+                                            )
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = searchField,
+                                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f),
+                                                fontSize = 13.sp
+                                            )
+                                        }
                                     }
                                 }
                             }
-                        }
-                    } else {
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            items(filteredUsers) { user ->
-                                val unread = unreadCounts[user.email] ?: 0
-                                UserItemRow(
-                                    user = user,
-                                    unreadCount = unread,
-                                    isSecured = securedChats.containsKey(user.email),
-                                    onSelect = {
-                                        val lockPass = securedChats[user.email]
-                                        if (lockPass != null) {
-                                            lockPromptEmail = user.email
-                                            lockPromptPassword = ""
-                                            lockPromptError = false
-                                        } else {
-                                            viewModel.selectChatUser(user)
+                        } else {
+                            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                items(filteredUsers) { user ->
+                                    val unread = unreadCounts[user.email] ?: 0
+                                    UserItemRow(
+                                        user = user,
+                                        unreadCount = unread,
+                                        isSecured = securedChats.containsKey(user.email),
+                                        verifiedColor = premiumVerifiedColors[user.email],
+                                        onSelect = {
+                                            val lockPass = securedChats[user.email]
+                                            if (lockPass != null) {
+                                                lockPromptEmail = user.email
+                                                lockPromptPassword = ""
+                                                lockPromptError = false
+                                            } else {
+                                                viewModel.selectChatUser(user)
+                                            }
+                                        },
+                                        onLongClick = {
+                                            activeLongClickUser = user
+                                            showActionDialog = true
                                         }
-                                    },
-                                    onLongClick = {
-                                        activeLongClickUser = user
-                                        showActionDialog = true
-                                    }
-                                )
+                                    )
+                                }
                             }
                         }
                     }
@@ -748,6 +924,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                     user = user,
                                     unreadCount = unread,
                                     isSecured = securedChats.containsKey(user.email),
+                                    verifiedColor = premiumVerifiedColors[user.email],
                                     onSelect = {
                                         val lockPass = securedChats[user.email]
                                         if (lockPass != null) {
@@ -824,7 +1001,31 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
 
         AlertDialog(
             onDismissRequest = { showActionDialog = false },
-            title = { Text(removeLinkAndLockFromName(target.name)) },
+            title = {
+                val verifiedColor = target.email.let { premiumVerifiedColors[it] }
+                val isPremiumVerified = verifiedColor != null || target.name.contains("(Verified)")
+                val finalVerifiedColor = verifiedColor ?: if (target.name.contains("(Verified)")) "blue" else null
+                val cleanName = removeLinkAndLockFromName(target.name)
+
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    if (isPremiumVerified) {
+                        Text(
+                            text = cleanName,
+                            style = MaterialTheme.typography.titleLarge.copy(color = parseVerifiedColor(finalVerifiedColor)),
+                            fontWeight = FontWeight.Bold
+                        )
+                        Spacer(modifier = Modifier.width(4.dp))
+                        Icon(
+                            imageVector = Icons.Filled.Verified,
+                            contentDescription = "Premium Verified",
+                            tint = parseVerifiedColor(finalVerifiedColor),
+                            modifier = Modifier.size(20.dp)
+                        )
+                    } else {
+                        Text(cleanName, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
+                    }
+                }
+            },
             text = { Text("আপনার নির্বাচিত ইউজারের জন্য নিচে দেয়া অপারেশনগুলোর একটি নির্বাচন করুণঃ") },
             confirmButton = {
                 Column(modifier = Modifier.fillMaxWidth()) {
@@ -970,6 +1171,237 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
             showProfileModal = false
         }
     }
+
+    if (showPremiumModal) {
+        PremiumActivationDialog(viewModel = viewModel) {
+            showPremiumModal = false
+        }
+    }
+}
+
+@Composable
+fun PremiumActivationDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
+    val context = LocalContext.current
+    val currentUser by viewModel.currentUser.collectAsState()
+    val premiumVerifiedColors by viewModel.premiumVerifiedColors.collectAsState()
+    val isVerified = currentUser?.email?.let { premiumVerifiedColors.containsKey(it) } ?: false
+
+    var codeText by remember { mutableStateOf("") }
+    val premiumCodes by viewModel.premiumCodes.collectAsState()
+    val premiumLoading by viewModel.premiumLoading.collectAsState()
+    var statusMsg by remember { mutableStateOf("") }
+    var statusSuccess by remember { mutableStateOf(false) }
+
+    // Fetch premium list on launch
+    LaunchedEffect(Unit) {
+        viewModel.loadPremiumCodesFromSheet()
+    }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Filled.Star,
+                    contentDescription = "Premium",
+                    tint = Color(0xFFD4AF37),
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text("পার্থিব প্রিমিয়াম ভেরিফিকেশন", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                if (isVerified) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .background(Color(0xFFE3F2FD), RoundedCornerShape(8.dp))
+                            .padding(12.dp)
+                    ) {
+                        Column {
+                            Text(
+                                text = "✓ আপনার অ্যাকাউন্ট সফলভাবে ভেরিফাই করা হয়েছে!",
+                                color = Color(0xFF1565C0),
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "আপনি ইতোমধ্যে ভেরিফাইড ইউজার। এখন নতুন কোনো কোড টাইপ বা প্রবেশ করতে পারবেন না। নতুন কোড বসাতে চাইলে প্রথমে নিচের বাতিল করুন বাটনে চাপ দিতে হবে।",
+                                color = Color(0xFF1565C0),
+                                fontSize = 12.sp
+                            )
+                        }
+                    }
+                } else {
+                    Text(
+                        text = "প্রিমিয়ার সুবিধা বা ভেরিফিকেশন কোড সক্রিয় করুন। আপনার কোডটি নিচে সাবমিট করুন:",
+                        fontSize = 14.sp,
+                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                    )
+                }
+
+                OutlinedTextField(
+                    value = if (isVerified) "ভেরিফাইড (Locked)" else codeText,
+                    onValueChange = { if (!isVerified) codeText = it },
+                    label = { Text("অ্যাক্টিভেশন কোড লিখুন") },
+                    singleLine = true,
+                    enabled = !isVerified,
+                    modifier = Modifier.fillMaxWidth().testTag("premium_code_input")
+                )
+
+                if (premiumLoading) {
+                    CircularProgressIndicator(
+                        modifier = Modifier
+                            .size(24.dp)
+                            .align(Alignment.CenterHorizontally),
+                        color = MaterialTheme.colorScheme.primary
+                    )
+                }
+
+                if (statusMsg.isNotEmpty()) {
+                    Text(
+                        text = statusMsg,
+                        color = if (statusSuccess) Color(0xFF4CAF50) else Color(0xFFE53935),
+                        fontWeight = FontWeight.Medium,
+                        fontSize = 13.sp,
+                        modifier = Modifier.align(Alignment.CenterHorizontally)
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (isVerified) {
+                // Cancel verification option
+                Button(
+                    onClick = {
+                        viewModel.cancelPremiumVerification(
+                            onSuccess = {
+                                statusSuccess = true
+                                codeText = ""
+                                statusMsg = "পূর্বে ভেরিফিকেশন সফলভাবে বাতিল করা হয়েছে! এখন আপনি নতুন কোড প্রবেশ করাতে পারবেন।"
+                                Toast.makeText(context, "ভেরিফিকেশন সফলভাবে বাতিল সম্পন্ন হয়েছে!", Toast.LENGTH_LONG).show()
+                            },
+                            onError = { err ->
+                                statusSuccess = false
+                                statusMsg = err
+                            }
+                        )
+                    },
+                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE53935)),
+                    modifier = Modifier.testTag("cancel_code_button")
+                ) {
+                    Text("ভেরিফিকেশন বাতিল করুন", color = Color.White)
+                }
+            } else {
+                Button(
+                    onClick = {
+                        if (codeText.trim().isEmpty()) {
+                            statusMsg = "অ্যাক্টিভেশন কোড প্রবেশ করান!"
+                            statusSuccess = false
+                        } else {
+                            viewModel.activatePremiumCode(
+                                codeText,
+                                onSuccess = { color ->
+                                    statusSuccess = true
+                                    statusMsg = "সফলভাবে প্রিমিয়াম সংস্করণ সক্রিয় হয়েছে! কালার আইডি: ${color.uppercase()}"
+                                    Toast.makeText(context, "অভিনন্দন! প্রিমিয়াম সার্ভিস চালু হয়েছে!", Toast.LENGTH_LONG).show()
+                                },
+                                onError = { err ->
+                                    statusSuccess = false
+                                    statusMsg = err
+                                }
+                            )
+                        }
+                    },
+                    modifier = Modifier.testTag("activate_code_button")
+                ) {
+                    Text("অ্যাক্টিভেট")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text("বন্ধ করুন")
+            }
+        }
+    )
+}
+
+@Composable
+fun getAnimatedAccentColor(): Color {
+    val infiniteTransition = rememberInfiniteTransition(label = "accent_color_transition")
+    val animatedColor by infiniteTransition.animateColor(
+        initialValue = Color(0xFF00FFCC), // Neon Aqua/Teal
+        targetValue = Color(0xFFFF007F),  // Electric Pink / Rose
+        animationSpec = infiniteRepeatable(
+            animation = tween(2500, easing = LinearEasing),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "global_animated_accent"
+    )
+    return animatedColor
+}
+
+@Composable
+fun getRisingGradientBrush(): Brush {
+    val infiniteTransition = rememberInfiniteTransition(label = "shimmer_gold_white")
+    val animOffset = infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 3500, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "gradient_shift"
+    )
+
+    val colors = listOf(
+        Color.White,
+        Color(0xFFD4AF37), // Golden
+        Color.White,
+        Color(0xFFD4AF37),
+        Color.White
+    )
+
+    return Brush.verticalGradient(
+        colors = colors,
+        startY = -animOffset.value,
+        endY = 500f - animOffset.value,
+        tileMode = TileMode.Repeated
+    )
+}
+
+fun parseVerifiedColor(colorStr: String?): Color {
+    if (colorStr == null) return Color(0xFFD4AF37)
+    return when (colorStr.lowercase().trim()) {
+        "black" -> Color.Black
+        "blue" -> Color(0xFF1E88E5)
+        "green" -> Color(0xFF4CAF50)
+        "red" -> Color(0xFFE53935)
+        "yellow" -> Color(0xFFFFEB3B)
+        "orange" -> Color(0xFFFF9800)
+        "purple" -> Color(0xFF9C27B0)
+        "white" -> Color.White
+        else -> {
+            try {
+                if (colorStr.startsWith("#")) {
+                    Color(android.graphics.Color.parseColor(colorStr))
+                } else {
+                    Color(0xFFD4AF37)
+                }
+            } catch (e: Exception) {
+                Color(0xFFD4AF37)
+            }
+        }
+    }
 }
 
 // Single User list Item layout
@@ -979,6 +1411,7 @@ fun UserItemRow(
     user: User,
     unreadCount: Int,
     isSecured: Boolean,
+    verifiedColor: String? = null,
     onSelect: () -> Unit,
     onLongClick: () -> Unit
 ) {
@@ -1046,32 +1479,42 @@ fun UserItemRow(
             val cleanName = removeLinkAndLockFromName(user.name)
             val extractedImageUrl = extractLinkFromName(user.name)
 
-            val colorAnimation = if (hasHighlight) {
-                val infiniteTransition = rememberInfiniteTransition(label = "gold_pulse")
-                infiniteTransition.animateColor(
-                    initialValue = Color(0xFFD4AF37), // Golden
-                    targetValue = Color.White,
-                    animationSpec = infiniteRepeatable(
-                        animation = tween(1200, easing = LinearEasing),
-                        repeatMode = RepeatMode.Reverse
-                    ),
-                    label = "goldAnimation"
-                ).value
-            } else {
-                MaterialTheme.colorScheme.onSurface
-            }
+            val isPremiumVerified = verifiedColor != null || user.name.contains("(Verified)")
+            val finalVerifiedColor = verifiedColor ?: if (user.name.contains("(Verified)")) "blue" else null
 
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    text = cleanName,
-                    fontSize = 16.sp,
-                    fontWeight = if (hasHighlight) FontWeight.Bold else FontWeight.SemiBold,
-                    color = colorAnimation,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.weight(1f, fill = false)
-                )
-                if (hasHighlight) {
+                if (isPremiumVerified) {
+                    Text(
+                        text = cleanName,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = parseVerifiedColor(finalVerifiedColor),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                } else {
+                    val staticColor = if (hasHighlight) Color(0xFFD4AF37) else MaterialTheme.colorScheme.onSurface
+                    Text(
+                        text = cleanName,
+                        fontSize = 16.sp,
+                        fontWeight = if (hasHighlight) FontWeight.Bold else FontWeight.SemiBold,
+                        color = staticColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f, fill = false)
+                    )
+                }
+
+                if (isPremiumVerified) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Filled.Verified,
+                        contentDescription = "Premium Verified",
+                        tint = parseVerifiedColor(finalVerifiedColor),
+                        modifier = Modifier.size(16.dp)
+                    )
+                } else if (hasHighlight) {
                     Spacer(modifier = Modifier.width(4.dp))
                     Icon(
                         imageVector = Icons.Filled.Verified,
@@ -1095,13 +1538,24 @@ fun UserItemRow(
                 }
             }
             Spacer(modifier = Modifier.height(2.dp))
-            Text(
-                text = user.email,
-                fontSize = 13.sp,
-                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
+            if (!user.statusMessage.isNullOrEmpty()) {
+                Text(
+                    text = "💬 " + user.statusMessage,
+                    fontSize = 12.sp,
+                    color = MaterialTheme.colorScheme.primary,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            } else {
+                Text(
+                    text = user.email,
+                    fontSize = 13.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
         }
 
         if (isSecured) {
@@ -1151,10 +1605,19 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
     val isSending by viewModel.isSending.collectAsState()
     val typingPartner by viewModel.typingPartnerName.collectAsState()
     val partnerOnline by viewModel.partnerOnlineStatus.collectAsState()
+    val premiumVerifiedColors by viewModel.premiumVerifiedColors.collectAsState()
 
     val chatWallpaper by viewModel.chatWallpaper.collectAsState()
     val soundEnabled by viewModel.soundEnabled.collectAsState()
     val autoScrollLocked by viewModel.autoScrollLocked.collectAsState()
+
+    val galleryLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            viewModel.applyWallpaper(uri.toString())
+        }
+    }
 
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
@@ -1163,6 +1626,9 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
     var textInput by remember { mutableStateOf("") }
     val lazyListState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
+
+    var isChatSearchVisible by remember { mutableStateOf(false) }
+    var chatSearchQuery by remember { mutableStateOf("") }
 
     // Extra modal toggles matching DOM options
     var showWallpaperDialog by remember { mutableStateOf(false) }
@@ -1235,19 +1701,43 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
                 },
                 title = {
                     Column {
+                        val verifiedColor = chatUser?.email?.let { premiumVerifiedColors[it] }
+                        val isPremiumVerified = verifiedColor != null || chatUser?.name?.contains("(Verified)") == true
+                        val finalVerifiedColor = verifiedColor ?: if (chatUser?.name?.contains("(Verified)") == true) "blue" else null
+                        val cleanName = removeLinkFromName(chatUser?.name ?: "")
+
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            if (isPremiumVerified) {
+                                Text(
+                                    text = cleanName,
+                                    style = MaterialTheme.typography.titleMedium.copy(color = parseVerifiedColor(finalVerifiedColor)),
+                                    fontWeight = FontWeight.Bold
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Icon(
+                                    imageVector = Icons.Filled.Verified,
+                                    contentDescription = "Premium Verified",
+                                    tint = parseVerifiedColor(finalVerifiedColor),
+                                    modifier = Modifier.size(18.dp)
+                                )
+                            } else {
+                                Text(
+                                    text = cleanName,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
                         Text(
-                            text = removeLinkFromName(chatUser?.name ?: ""),
-                            style = MaterialTheme.typography.titleMedium,
-                            fontWeight = FontWeight.Bold
-                        )
-                        Text(
-                            text = when (partnerOnline) {
+                            text = (when (partnerOnline) {
                                 "online" -> "🟢 Online"
                                 "away" -> "🟡 Away"
                                 else -> "⚫ Offline"
-                            },
+                            }) + if (!chatUser?.statusMessage.isNullOrEmpty()) " | \"${chatUser?.statusMessage}\"" else "",
                             style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f)
+                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis
                         )
                     }
                 },
@@ -1260,6 +1750,19 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
                     // Audio Call Trigger
                     IconButton(onClick = { viewModel.initiateCall("audio") }) {
                         Icon(Icons.Filled.Call, null)
+                    }
+
+                    // Search Message button
+                    IconButton(onClick = {
+                        isChatSearchVisible = !isChatSearchVisible
+                        if (!isChatSearchVisible) {
+                            chatSearchQuery = ""
+                        }
+                    }) {
+                        Icon(
+                            imageVector = if (isChatSearchVisible) Icons.Filled.Close else Icons.Filled.Search,
+                            contentDescription = "Search Messages"
+                        )
                     }
 
                     // Dropdown menu trigger
@@ -1277,8 +1780,8 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
                             leadingIcon = { Icon(Icons.Filled.BarChart, null) }
                         )
                         DropdownMenuItem(
-                            text = { Text("🖼️ Chat Wallpaper") },
-                            onClick = { isMenuExpanded = false; showWallpaperDialog = true },
+                            text = { Text("🖼️ Custom") },
+                            onClick = { isMenuExpanded = false; galleryLauncher.launch("image/*") },
                             leadingIcon = { Icon(Icons.Filled.Image, null) }
                         )
                         DropdownMenuItem(
@@ -1314,19 +1817,51 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            // Chat message searching bar
+            if (isChatSearchVisible) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                        .padding(horizontal = 16.dp, vertical = 6.dp)
+                ) {
+                    OutlinedTextField(
+                        value = chatSearchQuery,
+                        onValueChange = { chatSearchQuery = it },
+                        placeholder = { Text("বার্তা খুঁজুন (Search Message)...", fontSize = 14.sp) },
+                        leadingIcon = { Icon(Icons.Default.Search, null, modifier = Modifier.size(20.dp)) },
+                        trailingIcon = {
+                            if (chatSearchQuery.isNotEmpty()) {
+                                IconButton(onClick = { chatSearchQuery = "" }) {
+                                    Icon(Icons.Default.Close, null, modifier = Modifier.size(18.dp))
+                                }
+                            }
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp),
+                        shape = RoundedCornerShape(26.dp),
+                        singleLine = true,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = getAnimatedAccentColor(),
+                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                        )
+                    )
+                }
+            }
             // Typing indicator overlay
             if (typingPartner != null) {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f))
+                        .background(getAnimatedAccentColor().copy(alpha = 0.15f))
                         .padding(horizontal = 16.dp, vertical = 4.dp)
                 ) {
                     Text(
                         text = "$typingPartner টাইপ করছে...",
                         fontSize = 12.sp,
                         fontStyle = FontStyle.Italic,
-                        color = MaterialTheme.colorScheme.primary
+                        color = getAnimatedAccentColor()
                     )
                 }
             }
@@ -1341,6 +1876,17 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
                     })
                     .then(Modifier.background(MaterialTheme.colorScheme.background))
             ) {
+                // If it is a custom wallpaper, render it with Coil AsyncImage as a background
+                if (chatWallpaper.isNotEmpty() && chatWallpaper != "none" && chatWallpaper != "dots" && chatWallpaper != "grid" && chatWallpaper != "waves" && chatWallpaper != "stars") {
+                    AsyncImage(
+                        model = chatWallpaper,
+                        contentDescription = "Custom Wallpaper",
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop,
+                        alpha = 0.35f,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+
                 LazyColumn(
                     modifier = Modifier
                         .fillMaxSize()
@@ -1353,9 +1899,22 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
                 ) {
                     items(messages.size) { i ->
                         val msg = messages[i]
-                        MessageBubble(msg, onCopy = {
-                            clipboardCopy(msg.text)
-                        })
+                        MessageBubble(
+                            msg = msg,
+                            searchQuery = chatSearchQuery,
+                            partnerOnline = partnerOnline,
+                            onCopy = {
+                                clipboardCopy(msg.text)
+                            },
+                            onDelete = {
+                                viewModel.deleteMessage(msg.id)
+                            },
+                            onView = {
+                                chatUser?.email?.let { otherMail ->
+                                    viewModel.viewAndDecryptMessage(otherMail, msg)
+                                }
+                            }
+                        )
                     }
                 }
                 
@@ -1393,12 +1952,17 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
                     value = textInput,
                     onValueChange = {
                         textInput = it
-                        // send typing heartbeat
-                        viewModel.sendTyping()
+                        if (it.isEmpty()) {
+                            viewModel.stopTyping()
+                        } else {
+                            // send typing heartbeat
+                            viewModel.sendTyping()
+                        }
                     },
                     placeholder = { Text("বার্তা লিখুন...") },
                     modifier = Modifier.weight(1f),
                     shape = RoundedCornerShape(24.dp),
+                    maxLines = 4,
                     colors = OutlinedTextFieldDefaults.colors(
                         focusedBorderColor = MaterialTheme.colorScheme.primary,
                         unfocusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
@@ -1521,25 +2085,293 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
     }
 }
 
+// Helper for translation lookups
+fun getLocalTranslation(original: String): String {
+    val clean = original.trim().lowercase()
+    
+    // Check some common English phrases
+    if (clean.contains("hello") || clean.contains("hi") || clean.contains("hey")) return "হ্যালো! কেমন আছেন?"
+    if (clean.contains("how are you")) return "আপনি কেমন আছেন?"
+    if (clean.contains("what are you doing")) return "আপনি কি করছেন?"
+    if (clean.contains("good morning")) return "শুভ সকাল!"
+    if (clean.contains("good night")) return "শুভ রাত্রি!"
+    if (clean.contains("i am fine")) return "আমি ভালো আছি।"
+    if (clean.contains("thank you") || clean.contains("thanks")) return "আপনাকে ধন্যবাদ!"
+    if (clean.contains("where are you")) return "আপনি কোথায় আছেন?"
+    if (clean.contains("i love you")) return "আমি তোমাকে ভালোবাসি।"
+    if (clean.contains("ok") || clean.contains("okay")) return "ঠিক আছে।"
+    if (clean.contains("yes")) return "হ্যাঁ।"
+    if (clean.contains("no")) return "না।"
+    if (clean.contains("sorry")) return "দুঃখিত।"
+    if (clean.contains("please")) return "দয়া করে।"
+    
+    // Check some common Bengali phrases
+    if (clean.contains("কেমন আছ") || clean.contains("কেমন আছেন")) return "How are you?"
+    if (clean.contains("হ্যালো") || clean.contains("হাই")) return "Hello!"
+    if (clean.contains("কি কর") || clean.contains("কি করছেন")) return "What are you doing?"
+    if (clean.contains("ভালো আছি") || clean.contains("অনেক ভালো")) return "I am doing well."
+    if (clean.contains("কোথায়")) return "Where?"
+    if (clean.contains("ধন্যবাদ")) return "Thank you!"
+    if (clean.contains("শুভ সকাল")) return "Good morning."
+    if (clean.contains("শুভ রাত্রি")) return "Good night."
+    if (clean.contains("ঠিক আছে") || clean.contains("আচ্ছা")) return "Alright / Okay."
+    if (clean.contains("দুঃখিত")) return "I am sorry."
+    if (clean.contains("দয়া করে") || clean.contains("দয়া করে")) return "Please."
+    if (clean.contains("ভালোবাসি")) return "I love you."
+    
+    // If it's emoji, return as is
+    if (original.all { it.isSurrogate() || it.isWhitespace() || !it.isLetterOrDigit() }) return original
+    
+    // General simulated high-fidelity translation
+    val hasBengali = original.any { it.code in 0x0980..0x09FF }
+    return if (hasBengali) {
+        "Translation: \"$original\""
+    } else {
+        "অনুবাদঃ \"$original\""
+    }
+}
+
 // Single message item bubble
 @Composable
-fun MessageBubble(msg: ChatMessage, onCopy: () -> Unit) {
+fun MessageBubble(
+    msg: ChatMessage,
+    searchQuery: String = "",
+    partnerOnline: String = "offline",
+    onCopy: () -> Unit = {},
+    onDelete: () -> Unit = {},
+    onView: () -> Unit = {}
+) {
     val align = if (msg.isOwn) Alignment.End else Alignment.Start
+    val hasSearchMatch = searchQuery.isNotEmpty() && msg.text.lowercase().contains(searchQuery.lowercase())
+    
     val bg = if (msg.isOwn) {
         Brush.linearGradient(listOf(Color(0xFF6366F1), Color(0xFFA855F7)))
     } else {
-        Brush.linearGradient(listOf(Color(0xFFE2E8F0), Color(0xFFCBD5E1)))
+        if (hasSearchMatch) {
+            Brush.linearGradient(listOf(Color(0xFFFEF08A), Color(0xFFFDE047))) // Highlighted matching message
+        } else {
+            Brush.linearGradient(listOf(Color(0xFFE2E8F0), Color(0xFFCBD5E1)))
+        }
     }
-    val contentColor = if (msg.isOwn) Color.White else Color.Black
+    
+    val contentColor = if (msg.isOwn) {
+        Color.White
+    } else {
+        if (hasSearchMatch) Color(0xFF854D0E) else Color.Black
+    }
+
+    var isTranslated by remember { mutableStateOf(false) }
+    var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+
+    if (showDeleteConfirmDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteConfirmDialog = false },
+            title = { Text("বার্তা ডিলিট করুন", fontWeight = FontWeight.Bold) },
+            text = { Text("আপনি কি এই মেসেজটি গুগল শিট থেকে স্বয়ংক্রিয়ভাবে মুছে ফেলতে চান?\n\nএটি গুগল শিট (Google Sheet) ক্লাউড ডেটাবেস থেকে ডিলিট হয়ে যাবে কিন্তু লোকাল হোস্টে চিরস্থায়ীভাবে থেকে যাবে।") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        showDeleteConfirmDialog = false
+                        onDelete()
+                    }
+                ) {
+                    Text("হ্যাঁ, ডিলিট করুন", color = Color(0xFFE53935), fontWeight = FontWeight.Bold)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteConfirmDialog = false }) {
+                    Text("বাতিল করুন")
+                }
+            }
+        )
+    }
 
     Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = align) {
-        Box(
-            modifier = Modifier
-                .padding(8.dp)
-                .background(bg, shape = androidx.compose.foundation.shape.RoundedCornerShape(12.dp))
-                .padding(12.dp)
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = if (msg.isOwn) Arrangement.End else Arrangement.Start,
+            modifier = Modifier.fillMaxWidth()
         ) {
-            Text(text = msg.text, color = contentColor)
+            if (msg.isOwn) {
+                // Delete button
+                IconButton(
+                    onClick = { showDeleteConfirmDialog = true },
+                    modifier = Modifier.size(28.dp).testTag("delete_message_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = "Delete from Sheet",
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(2.dp))
+
+                // Translation trigger button beside own messages
+                IconButton(
+                    onClick = { isTranslated = !isTranslated },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Translate,
+                        contentDescription = "Translate",
+                        tint = if (isTranslated) Color(0xFF38BDF8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+            }
+
+            Box(
+                modifier = Modifier
+                    .padding(vertical = 4.dp, horizontal = 8.dp)
+                    .background(bg, shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+                    .border(
+                        width = if (hasSearchMatch) 2.dp else 0.dp,
+                        color = Color(0xFFF59E0B),
+                        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
+                    )
+                    .padding(horizontal = 12.dp, vertical = 10.dp)
+                    .weight(1f, fill = false)
+            ) {
+                Column {
+                    if (msg.isUnviewedServerMessage) {
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            modifier = Modifier.padding(vertical = 4.dp, horizontal = 4.dp)
+                        ) {
+                            Text(
+                                text = "🔒 নতুন অপঠিত ক্লাউড বার্তা",
+                                color = contentColor,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 14.sp
+                            )
+                            Spacer(modifier = Modifier.height(4.dp))
+                            Text(
+                                text = "বার্তাটি সার্ভার থেকে ডিলিট হয়ে আপনার লোকাল ফোনে যুক্ত হবে।",
+                                color = contentColor.copy(alpha = 0.8f),
+                                fontSize = 11.sp,
+                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                            )
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Button(
+                                onClick = onView,
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary,
+                                    contentColor = Color.White
+                                ),
+                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
+                                modifier = Modifier.height(36.dp)
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(Icons.Filled.Visibility, null, modifier = Modifier.size(16.dp))
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text("বার্তাটী দেখুন (View)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                    } else {
+                        Text(
+                            text = msg.text,
+                            color = contentColor,
+                            fontWeight = if (hasSearchMatch) FontWeight.Bold else FontWeight.Normal
+                        )
+
+                        if (isTranslated) {
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(1.dp)
+                                    .background(contentColor.copy(alpha = 0.25f))
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = getLocalTranslation(msg.text),
+                                color = contentColor.copy(alpha = 0.85f),
+                                fontSize = 13.sp,
+                                fontStyle = FontStyle.Italic,
+                                fontWeight = FontWeight.Medium
+                            )
+                        }
+                    }
+                }
+            }
+
+            if (!msg.isOwn) {
+                Spacer(modifier = Modifier.width(4.dp))
+                // Translation trigger button beside partner messages
+                IconButton(
+                    onClick = { isTranslated = !isTranslated },
+                    modifier = Modifier.size(28.dp)
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Translate,
+                        contentDescription = "Translate",
+                        tint = if (isTranslated) Color(0xFF38BDF8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(2.dp))
+
+                // Delete button
+                IconButton(
+                    onClick = { showDeleteConfirmDialog = true },
+                    modifier = Modifier.size(28.dp).testTag("delete_message_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Delete,
+                        contentDescription = "Delete from Sheet",
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+            }
+        }
+
+        // Delivery check status right next to / under own messages
+        if (msg.isOwn) {
+            Spacer(modifier = Modifier.height(1.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.End,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(end = 12.dp)
+            ) {
+                // Round mark / Circle checkbox
+                Box(
+                    modifier = Modifier
+                        .size(11.dp)
+                        .background(
+                            color = when (msg.deliveryStatus) {
+                                "seen" -> Color(0xFF4CAF50) // Green seen
+                                "delivered" -> Color(0xFF1E88E5) // Blue delivered
+                                else -> Color(0xFF78909C) // Grey sent
+                            },
+                            shape = androidx.compose.foundation.shape.CircleShape
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Check,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(7.dp)
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Text(
+                    text = when (msg.deliveryStatus) {
+                        "seen" -> "সিন (Seen)"
+                        "delivered" -> "ডেলিভারি (Delivered)"
+                        else -> "সেন্ট (Sent)"
+                    },
+                    fontSize = 10.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    fontWeight = FontWeight.Bold
+                )
+            }
         }
     }
 }
@@ -1598,6 +2430,37 @@ fun clipboardCopy(text: String) {
     // mock helper
 }
 
+fun uriToBase64(context: Context, uri: Uri): String? {
+    return try {
+        val inputStream = context.contentResolver.openInputStream(uri)
+        val originalBitmap = BitmapFactory.decodeStream(inputStream)
+        if (originalBitmap != null) {
+            val size = 150
+            val scaledBitmap = if (originalBitmap.width > size || originalBitmap.height > size) {
+                val ratio = originalBitmap.width.toFloat() / originalBitmap.height.toFloat()
+                val (w, h) = if (ratio > 1) {
+                    Pair(size, (size / ratio).toInt())
+                } else {
+                    Pair((size * ratio).toInt(), size)
+                }
+                Bitmap.createScaledBitmap(originalBitmap, w, h, true)
+            } else {
+                originalBitmap
+            }
+            
+            val baos = ByteArrayOutputStream()
+            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 85, baos)
+            val bytes = baos.toByteArray()
+            Base64.encodeToString(bytes, Base64.NO_WRAP)
+        } else {
+            null
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+        null
+    }
+}
+
 // ─────────────────────────────────────────────
 //  SETTINGS & PROFILE DIALOG WITH MULTIPLE TABS
 // ─────────────────────────────────────────────
@@ -1607,14 +2470,33 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
     val isDarkMode by viewModel.isDarkMode.collectAsState()
     val currentTheme by viewModel.chatTheme.collectAsState()
     val allActiveUsers by viewModel.allUsers.collectAsState()
+    val premiumVerifiedColors by viewModel.premiumVerifiedColors.collectAsState()
 
-    var activeTab by remember { mutableStateOf("security") } // "security", "appearance", "pair", "device"
+    var activeTab by remember { mutableStateOf("profile") } // "profile", "security", "appearance", "pair", "device"
+
+    var displayName by remember(user) { mutableStateOf(user?.name ?: "") }
+    var statusMsg by remember(user) { mutableStateOf(user?.statusMessage ?: "") }
+    var photoUrl by remember(user) { mutableStateOf(user?.photoUrl ?: "") }
+    var base64Photo by remember { mutableStateOf<String?>(null) }
+    var selectedUri by remember { mutableStateOf<Uri?>(null) }
+
+    val context = LocalContext.current
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            selectedUri = uri
+            val base64 = uriToBase64(context, uri)
+            if (base64 != null) {
+                base64Photo = base64
+            }
+        }
+    }
 
     var currentPass by remember { mutableStateOf("") }
     var newPass by remember { mutableStateOf("") }
     var confirmPass by remember { mutableStateOf("") }
-
-    val context = LocalContext.current
 
     val partnerEmail by viewModel.pairPartnerEmail.collectAsState()
     val partnerName by viewModel.pairPartnerName.collectAsState()
@@ -1663,7 +2545,38 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                         }
                     }
                     Spacer(modifier = Modifier.height(8.dp))
-                    Text(text = user?.name ?: "", fontWeight = FontWeight.Bold, fontSize = 18.sp)
+
+                    val verifiedColor = user?.email?.let { premiumVerifiedColors[it] }
+                    val isPremiumVerified = verifiedColor != null || user?.name?.contains("(Verified)") == true
+                    val finalVerifiedColor = verifiedColor ?: if (user?.name?.contains("(Verified)") == true) "blue" else null
+                    val cleanSelfName = removeLinkAndLockFromName(user?.name ?: "")
+
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        if (isPremiumVerified) {
+                            Text(
+                                text = cleanSelfName,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp,
+                                color = parseVerifiedColor(finalVerifiedColor)
+                            )
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Icon(
+                                imageVector = Icons.Filled.Verified,
+                                contentDescription = "Premium Verified",
+                                tint = parseVerifiedColor(finalVerifiedColor),
+                                modifier = Modifier.size(20.dp)
+                            )
+                        } else {
+                            Text(
+                                text = cleanSelfName,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 18.sp
+                            )
+                        }
+                    }
                     Text(text = user?.email ?: "", fontSize = 13.sp, color = Color.Gray)
                 }
 
@@ -1676,6 +2589,7 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                         .horizontalScroll(rememberScrollState()),
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    TabPill(text = "👤 Profile", active = activeTab == "profile") { activeTab = "profile" }
                     TabPill(text = "🔒 Security", active = activeTab == "security") { activeTab = "security" }
                     TabPill(text = "🎨 Theme", active = activeTab == "appearance") { activeTab = "appearance" }
                     TabPill(text = "💞 Pair", active = activeTab == "pair") { activeTab = "pair" }
@@ -1685,6 +2599,251 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                 Spacer(modifier = Modifier.height(16.dp))
 
                 when (activeTab) {
+                    "profile" -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = "আপনার প্রোফাইল সম্পাদনা করুনঃ",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+
+                            OutlinedTextField(
+                                value = displayName,
+                                onValueChange = { displayName = it },
+                                label = { Text("প্রদর্শন নাম (Display Name)") },
+                                leadingIcon = { Icon(Icons.Default.Person, null) },
+                                modifier = Modifier.fillMaxWidth().testTag("profile_name_input"),
+                                singleLine = true
+                            )
+
+                            OutlinedTextField(
+                                value = statusMsg,
+                                onValueChange = { statusMsg = it },
+                                label = { Text("স্ট্যাটাস বার্তা (Status Message)") },
+                                leadingIcon = { Icon(Icons.Default.Edit, null) },
+                                placeholder = { Text("যেমনঃ ব্যস্ত আছি, ঘুমাচ্ছি...") },
+                                modifier = Modifier.fillMaxWidth().testTag("profile_status_input"),
+                                singleLine = true
+                            )
+
+                            // Status Presets
+                            Text(
+                                text = "কুইক স্ট্যাটাস সিলেক্ট করুনঃ",
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+
+                            val presets = listOf(
+                                "ব্যস্ত আছি",
+                                "গান শুনছি",
+                                "ঘুমাচ্ছি",
+                                "কোডিং করছি",
+                                "বাইরে আছি",
+                                "ক্লাসে আছি",
+                                "সর্বদা ইতিবাচক!"
+                            )
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .horizontalScroll(rememberScrollState()),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                presets.forEach { prs ->
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(16.dp))
+                                            .background(
+                                                if (statusMsg == prs) MaterialTheme.colorScheme.primary
+                                                else MaterialTheme.colorScheme.surfaceVariant
+                                            )
+                                            .clickable { statusMsg = prs }
+                                            .padding(horizontal = 12.dp, vertical = 6.dp)
+                                    ) {
+                                        Text(
+                                            text = prs,
+                                            fontSize = 11.sp,
+                                            color = if (statusMsg == prs) MaterialTheme.colorScheme.onPrimary
+                                            else MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                }
+                            }
+
+                            Divider()
+
+                            // Profile Photo section
+                            Text(
+                                text = "প্রোফাইল ছবি পরিবর্তন করুনঃ",
+                                fontWeight = FontWeight.SemiBold,
+                                style = MaterialTheme.typography.bodyMedium
+                            )
+
+                            // Preset Avatars
+                            val avatarPresets = listOf(
+                                "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=120&q=80",
+                                "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=120&q=80",
+                                "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=120&q=80",
+                                "https://images.unsplash.com/photo-1500648767791-00dcc994a43e?auto=format&fit=crop&w=120&q=80",
+                                "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?auto=format&fit=crop&w=120&q=80",
+                                "https://images.unsplash.com/photo-1517841905240-472988babdf9?auto=format&fit=crop&w=120&q=80"
+                            )
+
+                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                Text(
+                                    text = "প্রিসেট এভাটার থেকে পছন্দ করুনঃ",
+                                    fontSize = 12.sp,
+                                    color = Color.Gray
+                                )
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState()),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    avatarPresets.forEach { presetUrl ->
+                                        Box(
+                                            modifier = Modifier
+                                                .size(50.dp)
+                                                .clip(CircleShape)
+                                                .border(
+                                                    width = if (photoUrl == presetUrl) 3.dp else 1.dp,
+                                                    color = if (photoUrl == presetUrl) MaterialTheme.colorScheme.primary else Color.LightGray,
+                                                    shape = CircleShape
+                                                )
+                                                .clickable {
+                                                    photoUrl = presetUrl
+                                                    base64Photo = null
+                                                }
+                                        ) {
+                                            AsyncImage(
+                                                model = presetUrl,
+                                                contentDescription = "Avatar Preset",
+                                                contentScale = ContentScale.Crop,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            // Custom photo URL
+                            OutlinedTextField(
+                                value = if (photoUrl.startsWith("data:image")) "[স্থানীয় আপলোড ছবি / Local Uploaded Image]" else photoUrl,
+                                onValueChange = {
+                                    if (!it.startsWith("[স্থানীয়")) {
+                                        photoUrl = it
+                                        base64Photo = null
+                                    }
+                                },
+                                label = { Text("কাস্টম ছবির URL") },
+                                leadingIcon = { Icon(Icons.Default.Link, null) },
+                                modifier = Modifier.fillMaxWidth().testTag("profile_photo_url_input"),
+                                singleLine = true,
+                                trailingIcon = {
+                                    if (photoUrl.isNotEmpty()) {
+                                        IconButton(onClick = {
+                                            photoUrl = ""
+                                            base64Photo = null
+                                        }) {
+                                            Icon(Icons.Default.Clear, null)
+                                        }
+                                    }
+                                }
+                            )
+
+                            // Image Picker Trigger
+                            val imagePickerLauncher = rememberLauncherForActivityResult(
+                                contract = ActivityResultContracts.GetContent()
+                            ) { uri: Uri? ->
+                                if (uri != null) {
+                                    try {
+                                        val inputStream = context.contentResolver.openInputStream(uri)
+                                        val originalBitmap = BitmapFactory.decodeStream(inputStream)
+                                        if (originalBitmap != null) {
+                                            val size = 150
+                                            val scaledBitmap = if (originalBitmap.width > size || originalBitmap.height > size) {
+                                                val ratio = originalBitmap.width.toFloat() / originalBitmap.height.toFloat()
+                                                val (w, h) = if (ratio > 1) {
+                                                    Pair(size, (size / ratio).toInt())
+                                                } else {
+                                                    Pair((size * ratio).toInt(), size)
+                                                }
+                                                Bitmap.createScaledBitmap(originalBitmap, w, h, true)
+                                            } else {
+                                                originalBitmap
+                                            }
+                                            
+                                            val baos = ByteArrayOutputStream()
+                                            scaledBitmap.compress(Bitmap.CompressFormat.JPEG, 85, baos)
+                                            val bytes = baos.toByteArray()
+                                            val b64 = Base64.encodeToString(bytes, Base64.NO_WRAP)
+                                            base64Photo = b64
+                                            photoUrl = "data:image/jpeg;base64,$b64"
+                                            Toast.makeText(context, "ছবি সফলভাবে নির্বাচন করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } catch (e: Exception) {
+                                        Toast.makeText(context, "ত্রুটিঃ ${e.message}", Toast.LENGTH_LONG).show()
+                                    }
+                                }
+                            }
+
+                            Button(
+                                onClick = { imagePickerLauncher.launch("image/*") },
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary),
+                                modifier = Modifier.fillMaxWidth().testTag("profile_upload_button")
+                            ) {
+                                Icon(Icons.Default.PhotoCamera, null)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("গ্যালারি থেকে ছবি আপলোড করুন")
+                            }
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            var isUpdatingProfile by remember { mutableStateOf(false) }
+
+                            Button(
+                                onClick = {
+                                    if (displayName.isBlank()) {
+                                        Toast.makeText(context, "নাম খালি হতে পারবে না!", Toast.LENGTH_SHORT).show()
+                                        return@Button
+                                    }
+                                    isUpdatingProfile = true
+                                    viewModel.updateProfile(
+                                        name = displayName,
+                                        statusMessage = statusMsg,
+                                        base64Photo = base64Photo,
+                                        photoUrl = if (photoUrl.startsWith("data:image")) null else photoUrl
+                                    ) { success ->
+                                        isUpdatingProfile = false
+                                        if (success) {
+                                            Toast.makeText(context, "প্রোফাইল সফলভাবে আপডেট করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                            onDismiss()
+                                        } else {
+                                            Toast.makeText(context, "আপডেট ব্যর্থ হয়েছে!", Toast.LENGTH_SHORT).show()
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().height(48.dp).testTag("profile_save_button"),
+                                enabled = !isUpdatingProfile
+                            ) {
+                                if (isUpdatingProfile) {
+                                    CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White)
+                                } else {
+                                    Icon(Icons.Default.Save, null)
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("প্রোফাইল সংরক্ষণ করুন")
+                                }
+                            }
+                        }
+                    }
+
                     "security" -> {
                         Text("পাসওয়ার্ড পরিবর্তন করুনঃ", fontWeight = FontWeight.SemiBold)
                         Spacer(modifier = Modifier.height(8.dp))
@@ -1796,13 +2955,78 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                                 }
                             }
                         } else {
-                            Text("আপনি Paired নেই। রিসেট কোড পেতে অংশীদার করুনঃ")
+                            if (signalPairRequest != null) {
+                                Card(
+                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                    colors = CardDefaults.cardColors(
+                                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                                    ),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp)) {
+                                        Text(
+                                            text = "💞 ইনকামিং পেয়ার অনুরোধ!",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 15.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "${signalPairRequest!!.fromName} (${signalPairRequest!!.fromEmail}) আপনাকে পেয়ার করার অনুরোধ পাঠিয়েছেন। সংযোগ সম্পন্ন করতে অংশীদারের কাছ থেকে পাওয়া অস্থায়ী ৬-সংখ্যার কোডটি নিচে লিখুনঃ",
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        var codeToMatch by remember { mutableStateOf("") }
+                                        OutlinedTextField(
+                                            value = codeToMatch,
+                                            onValueChange = { codeToMatch = it },
+                                            placeholder = { Text("৬-সংখ্যার পেয়ারিং কোড") },
+                                            singleLine = true,
+                                            modifier = Modifier.fillMaxWidth().testTag("pair_code_input")
+                                        )
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        Row(
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Button(
+                                                onClick = {
+                                                    viewModel.acceptPairRequestWithCode(
+                                                        fromEmail = signalPairRequest!!.fromEmail,
+                                                        enteredCode = codeToMatch,
+                                                        onSuccess = {
+                                                            Toast.makeText(context, "সফলভাবে পেয়ার করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                                        },
+                                                        onError = { err ->
+                                                            Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+                                                        }
+                                                    )
+                                                },
+                                                modifier = Modifier.testTag("pair_confirm_button")
+                                            ) {
+                                                Text("নিশ্চিত করুন")
+                                            }
+                                            TextButton(
+                                                onClick = {
+                                                    viewModel.respondToPairRequest(signalPairRequest!!.fromEmail, accept = false)
+                                                }
+                                            ) {
+                                                Text("বাতিল", color = Color.Red)
+                                            }
+                                        }
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                            }
+
+                            Text("অন্য কোনো ব্যবহারকারীকে পেয়ার করার জন্য অনুরোধ পাঠানঃ", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                             Spacer(modifier = Modifier.height(8.dp))
                             var reqMail by remember { mutableStateOf("") }
                             var pairRequestedEmailNotFound by remember { mutableStateOf<String?>(null) }
                             var pairRequestErrorMsg by remember { mutableStateOf<String?>(null) }
 
-                            Row(modifier = Modifier.fillMaxWidth()) {
+                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 OutlinedTextField(
                                     value = reqMail,
                                     onValueChange = { 
@@ -1812,7 +3036,7 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                                             pairRequestErrorMsg = null
                                         }
                                     },
-                                    placeholder = { Text("ইমেইল লিখুন...") },
+                                    placeholder = { Text("অংশীদারের ইমেইল...") },
                                     modifier = Modifier.weight(1f)
                                 )
                                 Spacer(modifier = Modifier.width(8.dp))
@@ -1832,6 +3056,36 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                                     }
                                 }) {
                                     Text("অনুরোধ")
+                                }
+                            }
+
+                            if (reqMail.isNotEmpty() && allActiveUsers.any { it.email.equals(reqMail.trim(), ignoreCase = true) }) {
+                                val pairingCode = viewModel.getPairingCode(user?.email ?: "", reqMail)
+                                Spacer(modifier = Modifier.height(10.dp))
+                                Card(
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                                    shape = RoundedCornerShape(8.dp)
+                                ) {
+                                    Column(modifier = Modifier.padding(10.dp)) {
+                                        Text(
+                                            text = "🤝 আপনার অস্থায়ী পেয়ারিং কোডঃ",
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 12.sp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Text(
+                                            text = pairingCode,
+                                            fontWeight = FontWeight.Black,
+                                            fontSize = 20.sp,
+                                            color = MaterialTheme.colorScheme.primary,
+                                            modifier = Modifier.padding(vertical = 4.dp)
+                                        )
+                                        Text(
+                                            text = "সংযোগ সম্পন্ন করতে আপনার অংশীদারকে কোডটি এই সেটিংসে প্রবেশ করাতে বলুন। কোনো অগ্রিম SMS লাগবে না।",
+                                            fontSize = 11.sp,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                        )
+                                    }
                                 }
                             }
 
@@ -2013,7 +3267,7 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                                         scaleY = pulseScale1,
                                         alpha = pulseAlpha1
                                     )
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), CircleShape)
+                                    .background(getAnimatedAccentColor().copy(alpha = 0.35f), CircleShape)
                             )
                             // Pulsing Ring 2
                             Box(
@@ -2024,14 +3278,14 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                                         scaleY = pulseScale2,
                                         alpha = pulseAlpha2
                                     )
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), CircleShape)
+                                    .background(getAnimatedAccentColor().copy(alpha = 0.5f), CircleShape)
                             )
                             // Core Avatar
                             Box(
                                 modifier = Modifier
                                     .size(80.dp)
                                     .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.primary),
+                                    .background(getAnimatedAccentColor()),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -2093,7 +3347,7 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                                         scaleY = pulseScale1,
                                         alpha = pulseAlpha1
                                     )
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.3f), CircleShape)
+                                    .background(getAnimatedAccentColor().copy(alpha = 0.35f), CircleShape)
                             )
                             // Pulsing Ring 2
                             Box(
@@ -2104,14 +3358,14 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                                         scaleY = pulseScale2,
                                         alpha = pulseAlpha2
                                     )
-                                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), CircleShape)
+                                    .background(getAnimatedAccentColor().copy(alpha = 0.5f), CircleShape)
                             )
                             // Core avatar
                             Box(
                                 modifier = Modifier
                                     .size(80.dp)
                                     .clip(CircleShape)
-                                    .background(MaterialTheme.colorScheme.secondary),
+                                    .background(getAnimatedAccentColor()),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
@@ -2181,14 +3435,14 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                                             scaleY = pulseScale2,
                                             alpha = pulseAlpha2 * 0.5f
                                         )
-                                        .background(Color.White.copy(alpha = 0.15f), CircleShape)
+                                        .background(getAnimatedAccentColor().copy(alpha = 0.4f), CircleShape)
                                 )
 
                                 Box(
                                     modifier = Modifier
                                         .size(100.dp)
                                         .clip(CircleShape)
-                                        .background(Color.Gray),
+                                        .background(getAnimatedAccentColor()),
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Text(

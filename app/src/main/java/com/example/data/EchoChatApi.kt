@@ -4,6 +4,9 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
+import okhttp3.MediaType.Companion.toMediaTypeOrNull
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import retrofit2.http.*
@@ -62,6 +65,15 @@ interface EchoChatApi {
         @Field("participants") participantsJson: String,
         @Field("replyTo") replyToJson: String? = null,
         @Field("isReaction") isReaction: String? = null
+    ): CommonResponse
+
+    @POST
+    @FormUrlEncoded
+    suspend fun deleteMessage(
+        @Url url: String,
+        @Field("mode") mode: String = "deleteMessage",
+        @Field("id") id: String,
+        @Field("sender") sender: String
     ): CommonResponse
 
     @POST
@@ -149,6 +161,9 @@ interface EchoChatApi {
         @Field("mode") mode: String = "removePair",
         @Field("email") email: String
     ): CommonResponse
+
+    @GET
+    suspend fun getPremiumCodes(@Url url: String): List<PremiumCode>
 }
 
 interface FirebaseDatabaseApi {
@@ -280,37 +295,189 @@ object RetrofitClient {
     }
 }
 
-// Simple wrapper API helper for Firebase Database REST calls
-interface FirebaseRestService {
-    @retrofit2.http.PUT("{path}.json")
-    suspend fun setValue(@retrofit2.http.Path(value = "path", encoded = true) path: String, @retrofit2.http.Body body: Any): Any
-
-    @retrofit2.http.GET("{path}.json")
-    suspend fun getValue(@retrofit2.http.Path(value = "path", encoded = true) path: String): Any?
-
-    @retrofit2.http.DELETE("{path}.json")
-    suspend fun deleteValue(@retrofit2.http.Path(value = "path", encoded = true) path: String): Any
-
-    @retrofit2.http.PATCH("{path}.json")
-    suspend fun patchValue(@retrofit2.http.Path(value = "path", encoded = true) path: String, @retrofit2.http.Body body: Any): Any
+// Simple wrapper API helper for Supabase Database REST calls
+interface SupabaseRestService {
+    suspend fun setValue(path: String, body: Any): Any
+    suspend fun getValue(path: String): Any?
+    suspend fun deleteValue(path: String): Any
+    suspend fun patchValue(path: String, body: Any): Any
 }
 
-object FirebaseRestClient {
+class SupabaseRestServiceImpl(
+    private val client: OkHttpClient,
+    private val moshi: Moshi
+) : SupabaseRestService {
+
+    private val anonKey = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJ2ZmJseXRteGx2dHdndXJuenRwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODIzOTE1NTQsImV4cCI6MjA5Nzk2NzU1NH0.zypeY87lYwhGSjzfcyzV16N4VuvKwUaQJxWIzGzU-2s"
+    private val baseUrl = "https://bvfblytmxlvtwgurnztp.supabase.co/rest/v1/kv_store"
+    private val jsonMediaType = "application/json; charset=utf-8".toMediaTypeOrNull()
+
+    override suspend fun setValue(path: String, body: Any): Any {
+        val sanitizedPath = path.removeSuffix(".json")
+        // Serialize body
+        val bodyAdapter = moshi.adapter(Any::class.java)
+        val bodyJson = bodyAdapter.toJson(body)
+
+        // Create envelope
+        val envelope = mapOf("id" to sanitizedPath, "data" to body)
+        val envelopeAdapter = moshi.adapter(Map::class.java)
+        val envelopeJson = envelopeAdapter.toJson(envelope)
+
+        val requestBody = envelopeJson.toRequestBody(jsonMediaType)
+
+        val request = okhttp3.Request.Builder()
+            .url(baseUrl)
+            .post(requestBody)
+            .addHeader("apikey", anonKey)
+            .addHeader("Authorization", "Bearer $anonKey")
+            .addHeader("Prefer", "resolution=merge-duplicates")
+            .addHeader("Content-Type", "application/json")
+            .build()
+
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val err = response.body?.string() ?: ""
+                    throw java.io.IOException("Supabase setValue error: ${response.code} $err")
+                }
+                true
+            }
+        }
+    }
+
+    override suspend fun getValue(path: String): Any? {
+        val sanitizedPath = path.removeSuffix(".json")
+        // We fetch exact or prefix matches
+        val url = baseUrl.toHttpUrlOrNull()!!.newBuilder()
+            .addQueryParameter("or", "(id.eq.$sanitizedPath,id.like.$sanitizedPath/%)")
+            .addQueryParameter("select", "id,data")
+            .build()
+
+        val request = okhttp3.Request.Builder()
+            .url(url)
+            .get()
+            .addHeader("apikey", anonKey)
+            .addHeader("Authorization", "Bearer $anonKey")
+            .build()
+
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val err = response.body?.string() ?: ""
+                    if (response.code == 404) return@withContext null
+                    throw java.io.IOException("Supabase getValue error: ${response.code} $err")
+                }
+                val bodyString = response.body?.string() ?: return@withContext null
+                
+                // Parse as list of maps
+                val listType = com.squareup.moshi.Types.newParameterizedType(List::class.java, Map::class.java)
+                val adapter = moshi.adapter<List<Map<String, Any>>>(listType)
+                val rows = try {
+                    adapter.fromJson(bodyString) ?: emptyList()
+                } catch (e: Exception) {
+                    emptyList()
+                }
+
+                if (rows.isEmpty()) {
+                    return@withContext null
+                }
+
+                // If we have exact match only and no other rows
+                val exactRow = rows.find { it["id"] == sanitizedPath }
+                if (exactRow != null && rows.size == 1) {
+                    return@withContext exactRow["data"]
+                }
+
+                // Compile prefix match as a Map
+                val resultMap = mutableMapOf<String, Any>()
+                for (row in rows) {
+                    val rowId = row["id"] as? String ?: continue
+                    val rowData = row["data"] ?: continue
+                    if (rowId == sanitizedPath) {
+                        if (rowData is Map<*, *>) {
+                            rowData.forEach { (k, v) ->
+                                if (k != null && v != null) {
+                                    resultMap[k.toString()] = v
+                                }
+                            }
+                        }
+                    } else {
+                        val remainder = rowId.substring(sanitizedPath.length)
+                        val subkey = if (remainder.startsWith("/")) remainder.substring(1) else remainder
+                        resultMap[subkey] = rowData
+                    }
+                }
+                
+                if (resultMap.isEmpty() && exactRow != null) {
+                    return@withContext exactRow["data"]
+                }
+                
+                resultMap
+            }
+        }
+    }
+
+    override suspend fun deleteValue(path: String): Any {
+        val sanitizedPath = path.removeSuffix(".json")
+        val url = baseUrl.toHttpUrlOrNull()!!.newBuilder()
+            .addQueryParameter("or", "(id.eq.$sanitizedPath,id.like.$sanitizedPath/%)")
+            .build()
+
+        val request = okhttp3.Request.Builder()
+            .url(url)
+            .delete()
+            .addHeader("apikey", anonKey)
+            .addHeader("Authorization", "Bearer $anonKey")
+            .build()
+
+        return kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    val err = response.body?.string() ?: ""
+                    throw java.io.IOException("Supabase deleteValue error: ${response.code} $err")
+                }
+                true
+            }
+        }
+    }
+
+    override suspend fun patchValue(path: String, body: Any): Any {
+        val sanitizedPath = path.removeSuffix(".json")
+        val existing = getValue(sanitizedPath) as? Map<String, Any>
+        val merged = if (existing != null && body is Map<*, *>) {
+            val updated = existing.toMutableMap()
+            body.forEach { (k, v) ->
+                if (k != null) {
+                    if (v != null) {
+                        updated[k.toString()] = v
+                    } else {
+                        updated.remove(k.toString())
+                    }
+                }
+            }
+            updated
+        } else {
+            body
+        }
+        return setValue(sanitizedPath, merged)
+    }
+}
+
+object SupabaseRestClient {
     private val moshi = Moshi.Builder()
         .add(KotlinJsonAdapterFactory())
         .build()
 
     private val okHttpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(10, TimeUnit.SECONDS)
+        .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+        .readTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
         .build()
 
-    val service: FirebaseRestService by lazy {
-        Retrofit.Builder()
-            .baseUrl("https://rafid-chat-default-rtdb.firebaseio.com/")
-            .client(okHttpClient)
-            .addConverterFactory(MoshiConverterFactory.create(moshi))
-            .build()
-            .create(FirebaseRestService::class.java)
+    val service: SupabaseRestService by lazy {
+        SupabaseRestServiceImpl(okHttpClient, moshi)
     }
+}
+
+object FirebaseRestClient {
+    val service: SupabaseRestService get() = SupabaseRestClient.service
 }

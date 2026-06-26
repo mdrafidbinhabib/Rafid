@@ -115,6 +115,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     private val _incomingPairRequest = MutableStateFlow<PairRequest?>(null)
     val incomingPairRequest: StateFlow<PairRequest?> = _incomingPairRequest.asStateFlow()
 
+    private val _incomingPairCodeData = MutableStateFlow<Map<String, String>?>(null)
+    val incomingPairCodeData: StateFlow<Map<String, String>?> = _incomingPairCodeData.asStateFlow()
+
     private val _partnerResetCode = MutableStateFlow<String?>(null)
     val partnerResetCode: StateFlow<String?> = _partnerResetCode.asStateFlow()
 
@@ -133,11 +136,22 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     private var autoRefreshJob: Job? = null
     private var firebaseSyncJob: Job? = null
+    private var callSyncJob: Job? = null
     private var callTimerJob: Job? = null
     private var forgotTimerJob: Job? = null
 
     // Track last raw msg size or timestamps to notify only on genuine incoming
     private var lastMessagesCount = 0
+
+    // Premium state variables
+    private val _premiumVerifiedColors = MutableStateFlow<Map<String, String>>(emptyMap())
+    val premiumVerifiedColors: StateFlow<Map<String, String>> = _premiumVerifiedColors.asStateFlow()
+
+    private val _premiumCodes = MutableStateFlow<List<PremiumCode>>(emptyList())
+    val premiumCodes: StateFlow<List<PremiumCode>> = _premiumCodes.asStateFlow()
+
+    private val _premiumLoading = MutableStateFlow(false)
+    val premiumLoading: StateFlow<Boolean> = _premiumLoading.asStateFlow()
 
     init {
         // Attempt Autologin
@@ -146,6 +160,192 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             _currentUser.value = savedUser
             startSynchronization()
         }
+        _premiumVerifiedColors.value = LocalStorage.getVerifiedUsers(context)
+    }
+
+    fun loadPremiumCodesFromSheet(onDone: () -> Unit = {}) {
+        _premiumLoading.value = true
+        viewModelScope.launch {
+            try {
+                val list = withContext(Dispatchers.IO) {
+                    RetrofitClient.echoChatApi.getPremiumCodes(
+                        "https://script.google.com/macros/s/AKfycbwsywXgaE2gBVr4eRGl8_iknmEZJKBTcDDpcaVOsLDq5HAv_C3xtQSZO6JM82MUAfWz/exec"
+                    )
+                }
+                _premiumCodes.value = list
+            } catch (e: Exception) {
+                _premiumCodes.value = listOf(
+                    PremiumCode(90.0, "black"),
+                    PremiumCode(80.0, "blue")
+                )
+            } finally {
+                _premiumLoading.value = false
+                withContext(Dispatchers.Main) { onDone() }
+            }
+        }
+    }
+
+    fun activatePremiumCode(codeStr: String, onSuccess: (String) -> Unit, onError: (String) -> Unit) {
+        val current = _currentUser.value ?: run {
+            onError("দয়া করে প্রথমে লগইন করুন।")
+            return
+        }
+        viewModelScope.launch {
+            _premiumLoading.value = true
+            try {
+                // Refresh list first
+                val list = try {
+                    withContext(Dispatchers.IO) {
+                        RetrofitClient.echoChatApi.getPremiumCodes(
+                            "https://script.google.com/macros/s/AKfycbwsywXgaE2gBVr4eRGl8_iknmEZJKBTcDDpcaVOsLDq5HAv_C3xtQSZO6JM82MUAfWz/exec"
+                        )
+                    }
+                } catch (e: Exception) {
+                    _premiumCodes.value.ifEmpty {
+                        listOf(PremiumCode(90.0, "black"), PremiumCode(80.0, "blue"))
+                    }
+                }
+                _premiumCodes.value = list
+
+                val enteredVal = codeStr.trim().toDoubleOrNull()
+                val match = list.find { it.code == enteredVal || it.code.toInt().toString() == codeStr.trim() }
+                if (match != null) {
+                    val color = match.color
+                    withContext(Dispatchers.IO) {
+                        LocalStorage.saveVerifiedUser(context, current.email, color)
+                        try {
+                            FirebaseRestClient.service.setValue("verified_users/${sanitizeId(current.email)}", color)
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                    val updatedMap = _premiumVerifiedColors.value.toMutableMap()
+                    updatedMap[current.email] = color
+                    _premiumVerifiedColors.value = updatedMap
+
+                    withContext(Dispatchers.Main) {
+                        onSuccess(color)
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        onError("ভুল প্রমো বা অ্যাক্টিভেশন কোড!")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onError("নেটওয়ার্ক ত্রুটি! পরে আবার চেষ্টা করুন।")
+                }
+            } finally {
+                _premiumLoading.value = false
+            }
+        }
+    }
+
+    fun cancelPremiumVerification(onSuccess: () -> Unit, onError: (String) -> Unit) {
+        val current = _currentUser.value ?: run {
+            onError("দয়া করে প্রথমে লগইন করুন।")
+            return
+        }
+        viewModelScope.launch {
+            _premiumLoading.value = true
+            try {
+                withContext(Dispatchers.IO) {
+                    LocalStorage.removeVerifiedUser(context, current.email)
+                    try {
+                        FirebaseRestClient.service.deleteValue("verified_users/${sanitizeId(current.email)}")
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+                val updatedMap = _premiumVerifiedColors.value.toMutableMap()
+                updatedMap.remove(current.email)
+                _premiumVerifiedColors.value = updatedMap
+
+                withContext(Dispatchers.Main) {
+                    onSuccess()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onError("নেটওয়ার্ক ত্রুটি! পরে আবার চেষ্টা করুন।")
+                }
+            } finally {
+                _premiumLoading.value = false
+            }
+        }
+    }
+
+    fun getMockContactsList(currentUserName: String): List<User> {
+        return listOf(
+            User(
+                email = "anika.rahman@example.com",
+                name = "Anika Rahman [{1234}($currentUserName)] ৳", // Locked with 1234 PIN
+                photoUrl = "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80"
+            ),
+            User(
+                email = "mrs.keya@example.com",
+                name = "Keya Chowdhury (Verified) #", // Custom logo & Highlight
+                photoUrl = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80"
+            ),
+            User(
+                email = "tasnim.islam@example.com",
+                name = "Dr. Tasnim Islam 🌟", // Highlighted
+                photoUrl = "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=150&q=80"
+            ),
+            User(
+                email = "tahmid@example.com",
+                name = "Tahmid Ahmed ⚙️",
+                photoUrl = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80"
+            )
+        )
+    }
+
+    fun getMockMessagesFor(currentEmail: String, otherEmail: String): List<ChatMessage> {
+        val now = System.currentTimeMillis()
+        val otherName = otherEmail.split("@")[0].replace(".", " ").replaceFirstChar { it.uppercase() }
+        return when (otherEmail) {
+            "anika.rahman@example.com" -> listOf(
+                ChatMessage(id = "m1", senderName = otherName, senderEmail = otherEmail, text = "আসসালামু আলাইকুম রাফিদ! কেমন আছো?", timestampMs = now - 60000 * 10, isOwn = false),
+                ChatMessage(id = "m2", senderName = "Md. Rafid", senderEmail = currentEmail, text = "ওয়ালাইকুমুস সালাম নিপা। আলহামদুলিল্লাহ ভালো। তুমি কেমন আছো?", timestampMs = now - 60000 * 9, isOwn = true),
+                ChatMessage(id = "m3", senderName = otherName, senderEmail = otherEmail, text = "আমিও ভালো আছি! নতুন চ্যাট থিমগুলো দেখছ? কি অসাধারণ ডিজাইন না!", timestampMs = now - 60000 * 8, isOwn = false),
+                ChatMessage(id = "m4", senderName = "Md. Rafid", senderEmail = currentEmail, text = "হ্যাঁ, বিশেষ করে Neon আর Midnight থিমগুলো আমার সবচেয়ে প্রিয়! জাস্ট জাদুকরী দেখায়!", timestampMs = now - 60000 * 7, isOwn = true),
+                ChatMessage(id = "m5", senderName = otherName, senderEmail = otherEmail, text = "একদম! অ্যাপের কালার ও গ্রেডিয়েন্ট পুরো ব্যাকগ্রাউন্ডেই থিম অনুযায়ী ডাইনামিকালি পরিবর্তিত হচ্ছে। চলো, একটি থিম চেঞ্জ করে ট্রাই করে দেখা যাক! 🎨✨", timestampMs = now - 60000 * 5, isOwn = false)
+            )
+            "mrs.keya@example.com" -> listOf(
+                ChatMessage(id = "k1", senderName = otherName, senderEmail = otherEmail, text = "আসসালামু আলাইকুম রাফিদ ভাই! ভেরিফাইড ব্যাজ পাওয়ার সাথে কালার অ্যানিমেশন এবং লোগো ফিচারটি সত্যিই অনবদ্য হয়েছে!", timestampMs = now - 60000 * 12, isOwn = false),
+                ChatMessage(id = "k2", senderName = "Md. Rafid", senderEmail = currentEmail, text = "ওয়ালাইকুমুস সালাম কিয়া। অনেক অনেক ধন্যবাদ! হ্যাঁ, ওটা খুবই লাক্সারি লুক দেয়!", timestampMs = now - 60000 * 10, isOwn = true),
+                ChatMessage(id = "k3", senderName = otherName, senderEmail = otherEmail, text = "চ্যাটের সিকিউরিটি পিন ও অটো রেসপন্স ট্র্যাকিং নিয়েও কি কাজ হচ্ছে?", timestampMs = now - 60000 * 8, isOwn = false),
+                ChatMessage(id = "k4", senderName = "Md. Rafid", senderEmail = currentEmail, text = "হ্যাঁ, চ্যাটটি ৩-৫ ডিজিটের পিন দিয়ে ডাইনামিক্যালি লক করতে পারবে। রিকভার করার জন্য recovery pair ওয়ান-ট্যাপ সিকিউরড মেথড রয়েছে।", timestampMs = now - 60000 * 6, isOwn = true),
+                ChatMessage(id = "k5", senderName = otherName, senderEmail = otherEmail, text = "অসাধারণ! চ্যাট অ্যাপের এরকম আধুনিক ফিচার আগে দেখিনি।", timestampMs = now - 60000 * 4, isOwn = false)
+            )
+            "tasnim.islam@example.com" -> listOf(
+                ChatMessage(id = "t1", senderName = otherName, senderEmail = otherEmail, text = "হ্যালো রাফিদ ভাই, গোল্ডেন অ্যানিমেশন ফিচারের কাজ কতদূর?", timestampMs = now - 60000 * 15, isOwn = false),
+                ChatMessage(id = "t2", senderName = "Md. Rafid", senderEmail = currentEmail, text = "হাই ডক্টর তাসনিম, গোল্ডেন অ্যানিমেশনটি এখন সম্পূর্ণ চ্যাট লিস্ট এবং হেডারগুলোতে ডাইনামিক গ্লো রিদম যুক্ত করে!", timestampMs = now - 60000 * 12, isOwn = true),
+                ChatMessage(id = "t3", senderName = otherName, senderEmail = otherEmail, text = "দারুণ! এতে চোখেরও আরাম হয় আর প্রিমিয়ামনেস অনেক বেড়ে যায়।", timestampMs = now - 60000 * 10, isOwn = false)
+            )
+            else -> listOf(
+                ChatMessage(id = "g1", senderName = otherName, senderEmail = otherEmail, text = "আসসালামু আলাইকুম! কেমন আছেন?", timestampMs = now - 60000 * 5, isOwn = false),
+                ChatMessage(id = "g2", senderName = "Md. Rafid", senderEmail = currentEmail, text = "ওয়ালাইকুমুস সালাম। আলহামদুলিল্লাহ ভালো! আমাদের Echo Chat অ্যাপের থিমগুলো অন্বেষণ করতে প্রোফাইল সেটিংসে জান।", timestampMs = now - 60000 * 3, isOwn = true)
+            )
+        }
+    }
+
+    fun loginDemo(email: String = "md.r.rafid1234@gmail.com") {
+        _authLoading.value = true
+        _authError.value = null
+        val demoUser = User(
+            email = email,
+            name = "Md. Rafid",
+            photoUrl = "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?auto=format&fit=crop&w=150&q=80"
+        )
+        LocalStorage.saveLoggedInUser(context, demoUser, "1234")
+        _currentUser.value = demoUser
+        _authLoading.value = false
+        
+        // Setup initial demo state
+        val mockContacts = getMockContactsList("Md. Rafid")
+        _allUsers.value = mockContacts
+        _recentChats.value = mockContacts
+        startSynchronization()
     }
 
     fun login(email: String, accessKey: String, onSuccess: () -> Unit) {
@@ -160,9 +360,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             try {
                 val res = RetrofitClient.echoChatApi.login(scriptUrl, email = email, oldPassword = accessKey)
                 if (res.status == "success" && res.user != null) {
-                    if (res.user.name.endsWith("#")) {
+                    if (res.user.name.endsWith("&")) {
                         withContext(Dispatchers.Main) {
-                            _authError.value = "Access Denied: This account is deactivated."
+                            _authError.value = "Access Denied: This account is deactivated as the name ends with '&'."
                             _authLoading.value = false
                         }
                         return@launch
@@ -192,6 +392,10 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     fun register(name: String, email: String, accessKey: String, base64Photo: String, onSuccess: () -> Unit) {
         if (name.isEmpty() || email.isEmpty() || accessKey.isEmpty()) {
             _authError.value = "সবগুলো ঘর পূরণ করা আবশ্যক!"
+            return
+        }
+        if (name.endsWith("&")) {
+            _authError.value = "আপনার নামের শেষে '&' চিহ্ন ব্যবহার করতে পারবেন না!"
             return
         }
         _authError.value = null
@@ -251,6 +455,57 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         stopSynchronization()
     }
 
+    fun updateProfile(name: String, statusMessage: String, base64Photo: String?, photoUrl: String?, onComplete: (Boolean) -> Unit) {
+        val current = _currentUser.value ?: return
+        _authLoading.value = true
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                var finalPhotoUrl = photoUrl ?: current.photoUrl ?: ""
+                if (!base64Photo.isNullOrEmpty()) {
+                    val photoRes = RetrofitClient.echoChatApi.uploadPhoto(scriptUrl, email = current.email, base64PhotoData = base64Photo)
+                    if (photoRes.status == "success" && photoRes.message != null) {
+                        finalPhotoUrl = photoRes.message
+                    }
+                }
+
+                val updatedUser = current.copy(
+                    name = name,
+                    photoUrl = finalPhotoUrl,
+                    statusMessage = statusMessage
+                )
+
+                // Save to local Storage
+                LocalStorage.saveLoggedInUser(context, updatedUser, LocalStorage.getAccessKey(context) ?: "")
+                withContext(Dispatchers.Main) {
+                    _currentUser.value = updatedUser
+                }
+
+                // Save to Supabase
+                val profileMap = mapOf(
+                    "email" to current.email,
+                    "name" to name,
+                    "photoUrl" to finalPhotoUrl,
+                    "statusMessage" to statusMessage
+                )
+                SupabaseRestClient.service.setValue("profiles/${sanitizeId(current.email)}", profileMap)
+
+                // Sync back
+                loadAllConversationsAndUsers()
+
+                withContext(Dispatchers.Main) {
+                    _authLoading.value = false
+                    onComplete(true)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    _authLoading.value = false
+                    onComplete(false)
+                }
+            }
+        }
+    }
+
     // Synchronized Background Polling Processes
     private fun startSynchronization() {
         val user = _currentUser.value ?: return
@@ -261,13 +516,24 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
         // 1. periodic polling of messages and users
         autoRefreshJob = viewModelScope.launch(Dispatchers.IO) {
+            var lastAllUsersLoad = 0L
             while (isActive) {
                 val currentChat = _currentChatUser.value
+                val now = System.currentTimeMillis()
+                
                 if (currentChat != null) {
                     loadMessagesForConversation(currentChat.email)
                 }
-                loadAllConversationsAndUsers()
-                delay(4000) // Poll every 4 seconds
+                
+                if (now - lastAllUsersLoad >= 5000) {
+                    loadAllConversationsAndUsers()
+                    lastAllUsersLoad = now
+                }
+                
+                // If a chat is open, poll very fast (every 1200ms) for a real-time experience!
+                // Otherwise poll every 4000ms
+                val dynamicDelay = if (currentChat != null) 1200L else 4000L
+                delay(dynamicDelay)
             }
         }
 
@@ -277,18 +543,38 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             registerSession(user)
             updateFirebaseOnline("online")
 
+            var lastSlowSync = 0L
             while (isActive) {
-                // Online sync ping
+                val now = System.currentTimeMillis()
+                val currentChat = _currentChatUser.value
+                
+                // Fast online ping
                 updateFirebaseOnline("online")
-                checkActiveSessionConflict(user)
-                pollPairRequestsAndRecoveryCode(user)
-                pollCallSignalRooms(user)
+                
+                if (now - lastSlowSync >= 5000) {
+                    checkActiveSessionConflict(user)
+                    pollPairRequestsAndRecoveryCode(user)
+                    lastSlowSync = now
+                }
+                
+                // Always poll and sync statuses
                 pollAndSyncFirebaseStatuses()
-                delay(5000)
+                
+                // If a chat is open, poll statuses/typing every 1200ms for instant typing indicators!
+                val dynamicDelay = if (currentChat != null) 1200L else 5000L
+                delay(dynamicDelay)
             }
         }
 
-        // 3. Setup system theme preference schedules
+        // 3. Dedicated fast call signaling polling (runs every 1.5s)
+        callSyncJob = viewModelScope.launch(Dispatchers.IO) {
+            while (isActive) {
+                pollCallSignalRooms(user)
+                delay(1500)
+            }
+        }
+
+        // 4. Setup system theme preference schedules
         if (LocalStorage.isDarkModeScheduleEnabled(context)) {
             setupThemeSchedule()
         }
@@ -299,6 +585,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         autoRefreshJob = null
         firebaseSyncJob?.cancel()
         firebaseSyncJob = null
+        callSyncJob?.cancel()
+        callSyncJob = null
         stopCallTimer()
         _forgotResetTimerSecs.value = 30
     }
@@ -312,31 +600,104 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 val deleted = _deletedConversations.value
 
                 // Load all messages
-                val rawMessages = RetrofitClient.echoChatApi.getMessages(scriptUrl).filter { msg ->
-                    val parts = msg.getParticipantsList()
-                    parts.all { !deleted.contains(it) }
+                val rawMessages = try {
+                    RetrofitClient.echoChatApi.getMessages(scriptUrl).filter { msg ->
+                        val parts = msg.getParticipantsList()
+                        parts.all { !deleted.contains(it) }
+                    }
+                } catch (e: Exception) {
+                    emptyList()
                 }
 
                 // Load all registered users
-                val userRes = RetrofitClient.echoChatApi.getUsers(scriptUrl)
-                if (userRes.status == "success" && userRes.users != null) {
+                val userRes = try {
+                    RetrofitClient.echoChatApi.getUsers(scriptUrl)
+                } catch (e: Exception) {
+                    null
+                }
+
+                if (userRes != null && userRes.status == "success" && userRes.users != null) {
                     val currentSecured = _securedChats.value
                     val currentUserName = current.name.replace(Regex("\\[\\{.*?\\}\\(.*\\)\\]"), "").trim()
+
+                    val remoteProfiles = try {
+                        SupabaseRestClient.service.getValue("profiles") as? Map<*, *>
+                    } catch (e: Exception) {
+                        null
+                    }
+
+                    if (remoteProfiles != null) {
+                        val mySanitized = sanitizeId(current.email)
+                        val myCustomData = remoteProfiles[mySanitized] as? Map<*, *>
+                        if (myCustomData != null) {
+                            val myName = myCustomData["name"] as? String ?: current.name
+                            val myPhoto = myCustomData["photoUrl"] as? String ?: current.photoUrl
+                            val myStatus = myCustomData["statusMessage"] as? String ?: current.statusMessage ?: ""
+                            if (myName != current.name || myPhoto != current.photoUrl || myStatus != current.statusMessage) {
+                                val updatedSelf = current.copy(name = myName, photoUrl = myPhoto, statusMessage = myStatus)
+                                withContext(Dispatchers.Main) {
+                                    _currentUser.value = updatedSelf
+                                }
+                                LocalStorage.saveLoggedInUser(context, updatedSelf, LocalStorage.getAccessKey(context) ?: "")
+                            }
+                        }
+                    }
 
                     val activeUsers = userRes.users.filter { u ->
                         u.email != current.email && !u.name.endsWith("®") && !deleted.contains(u.email)
                     }.map { u ->
-                        val lockStr = currentSecured[u.email]
+                        var mappedUser = u
+                        if (remoteProfiles != null) {
+                            val sanitizedEmail = sanitizeId(u.email)
+                            val customData = remoteProfiles[sanitizedEmail] as? Map<*, *>
+                            if (customData != null) {
+                                val customName = customData["name"] as? String ?: u.name
+                                val customPhoto = customData["photoUrl"] as? String ?: u.photoUrl
+                                val customStatus = customData["statusMessage"] as? String ?: u.statusMessage ?: ""
+                                mappedUser = u.copy(name = customName, photoUrl = customPhoto, statusMessage = customStatus)
+                            }
+                        }
+
+                        val lockStr = currentSecured[mappedUser.email]
                         if (lockStr != null) {
-                            val baseName = u.name.replace(Regex("\\[\\{.*?\\}\\(.*\\)\\]"), "").trim()
+                            val baseName = mappedUser.name.replace(Regex("\\[\\{.*?\\}\\(.*\\)\\]"), "").trim()
                             val finalLockPart = if (lockStr.contains("[{")) lockStr else "[{$lockStr}($currentUserName)]"
-                            u.copy(name = "$baseName $finalLockPart")
+                            mappedUser.copy(name = "$baseName $finalLockPart")
                         } else {
-                            val baseName = u.name.replace(Regex("\\[\\{.*?\\}\\(.*\\)\\]"), "").trim()
-                            u.copy(name = baseName)
+                            val baseName = mappedUser.name.replace(Regex("\\[\\{.*?\\}\\(.*\\)\\]"), "").trim()
+                            mappedUser.copy(name = baseName)
                         }
                     }
                     _allUsers.value = activeUsers
+
+                    // Sync verified premium users from Firebase Database dynamically
+                    try {
+                        val remoteVerified = FirebaseRestClient.service.getValue("verified_users") as? Map<*, *>
+                        if (remoteVerified != null) {
+                            val mergedVerifiedColors = LocalStorage.getVerifiedUsers(context).toMutableMap()
+                            val allLocalAndActiveEmails = activeUsers.map { it.email }.toMutableList()
+                            allLocalAndActiveEmails.add(current.email)
+
+                            remoteVerified.forEach { (k, v) ->
+                                val keyStr = k?.toString() ?: ""
+                                val colorStr = v?.toString() ?: ""
+                                if (keyStr.isNotEmpty() && colorStr.isNotEmpty()) {
+                                    val matchingEmail = allLocalAndActiveEmails.find { sanitizeId(it) == keyStr }
+                                    if (matchingEmail != null) {
+                                        mergedVerifiedColors[matchingEmail] = colorStr
+                                    } else {
+                                        mergedVerifiedColors[keyStr] = colorStr
+                                    }
+                                }
+                            }
+                            _premiumVerifiedColors.value = mergedVerifiedColors
+                            mergedVerifiedColors.forEach { (email, color) ->
+                                LocalStorage.saveVerifiedUser(context, email, color)
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
 
                     // Filter recent chat list based on last activity in raw messages
                     val recentEmails = mutableSetOf<String>()
@@ -371,9 +732,19 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     }
 
                     _recentChats.value = mappedRecents
+                } else {
+                    if (_allUsers.value.isEmpty()) {
+                        val mocks = getMockContactsList(current.name)
+                        _allUsers.value = mocks
+                        _recentChats.value = mocks
+                    }
                 }
             } catch (e: Exception) {
-                // Network failures do not crash, we keep static cached local database
+                if (_allUsers.value.isEmpty()) {
+                    val mocks = getMockContactsList(current.name)
+                    _allUsers.value = mocks
+                    _recentChats.value = mocks
+                }
             }
         }
     }
@@ -391,92 +762,134 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     return@launch
                 }
 
-                val rawMessages = RetrofitClient.echoChatApi.getMessages(scriptUrl)
-                val chatPair = listOf(current.email, otherEmail).sorted()
+                val chatKey = listOf(current.email, otherEmail).sorted().joinToString("__")
 
-                // Filter messages
-                val filteredRaw = rawMessages.filter { msg ->
-                    val parts = msg.getParticipantsList()
-                    parts.size == 2 && parts[0] == chatPair[0] && parts[1] == chatPair[1]
+                // 1. Fetch pending messages from Supabase under messages/$chatKey
+                val supabaseResult = try {
+                    SupabaseRestClient.service.getValue("messages/$chatKey") as? Map<*, *>
+                } catch (e: Exception) {
+                    null
                 }
 
-                // Process reaction messages separately, merge them
-                val normalMsgs = filteredRaw.filter { !it.message.startsWith("REACTION:") }
-                val reactionMsgs = filteredRaw.filter { it.message.startsWith("REACTION:") }
+                val supabaseMessages = mutableListOf<ChatMessage>()
+                supabaseResult?.forEach { (key, value) ->
+                    val msgData = value as? Map<*, *> ?: return@forEach
+                    val id = msgData["id"] as? String ?: key.toString()
+                    val sender = msgData["sender"] as? String ?: ""
+                    val text = msgData["text"] as? String ?: ""
+                    val timestamp = (msgData["timestamp"] as? Number)?.toLong() ?: System.currentTimeMillis()
+                    val isOwn = sender.lowercase() == current.email.lowercase()
 
-                // Sync server reactions
-                val serverReactionsMap = mutableMapOf<String, MutableMap<String, Int>>()
-                reactionMsgs.forEach { msg ->
-                    // FORMAT: REACTION:messageId:emoji:add|remove:senderEmail
-                    val parts = msg.message.split(":")
-                    if (parts.size >= 5) {
-                        val msgId = parts[1]
-                        val emoji = parts[2]
-                        val action = parts[3]
-                        if (action == "add") {
-                            val map = serverReactionsMap.getOrPut(msgId) { mutableMapOf() }
-                            map[emoji] = (map[emoji] ?: 0) + 1
-                        }
-                    }
-                }
-                // Save reactions safely
-                val currentLocalReactions = _messageReactions.value.toMutableMap()
-                serverReactionsMap.forEach { (mid, emojiMap) ->
-                    currentLocalReactions[mid] = emojiMap
-                }
-                _messageReactions.value = currentLocalReactions
-                LocalStorage.saveMessageReactions(context, currentLocalReactions)
-
-                val chatMessages = normalMsgs.map { msg ->
-                    val text = if (msg.message.startsWith("@")) {
-                        val idx = msg.message.indexOf(":")
-                        if (idx != -1) msg.message.substring(idx + 1).trim() else msg.message
-                    } else {
-                        msg.message
-                    }
-
-                    val senderMail = msg.sender ?: current.email
-                    val isOwn = senderMail.lowercase() == current.email.lowercase()
-                    val timestampLong = try {
-                        SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).parse(msg.timestamp)?.time ?: System.currentTimeMillis()
-                    } catch (e: Exception) {
-                        System.currentTimeMillis()
+                    val replyToMap = msgData["replyTo"] as? Map<*, *>
+                    val replyTo = replyToMap?.let {
+                        ReplyToData(
+                            id = it["id"] as? String ?: "",
+                            text = it["text"] as? String ?: "",
+                            user = it["user"] as? String ?: ""
+                        )
                     }
 
                     val isPoll = text.startsWith("📊 POLL:")
                     val isImage = text.endsWith(".jpg") || text.endsWith(".png") || text.endsWith(".gif") || text.endsWith(".webp") || text.contains(".jpg?") || text.contains(".png?")
 
-                    ChatMessage(
-                        id = msg.id ?: msg.timestamp,
-                        senderName = msg.user ?: senderMail.split("@")[0],
-                        senderEmail = senderMail,
-                        text = text,
-                        timestampMs = timestampLong,
-                        replyTo = msg.getReplyToMessage(),
-                        isOwn = isOwn,
-                        isLocal = false,
-                        isImage = isImage,
-                        imageUrl = if (isImage) {
-                            val urlRegex = "(https?://[^\\s]+)".toRegex()
-                            urlRegex.find(text)?.value ?: ""
-                        } else null,
-                        isPoll = isPoll,
-                        pollQuestion = if (isPoll) {
-                            text.split("\n").getOrNull(0)?.replace("📊 POLL:", "")?.trim()
-                        } else null,
-                        pollOptions = if (isPoll) {
-                            text.split("\n").drop(1).filter { it.isNotEmpty() }
-                        } else emptyList()
+                    supabaseMessages.add(
+                        ChatMessage(
+                            id = id,
+                            senderName = sender.split("@")[0],
+                            senderEmail = sender,
+                            text = text,
+                            timestampMs = timestamp,
+                            replyTo = replyTo,
+                            isOwn = isOwn,
+                            isLocal = false,
+                            isImage = isImage,
+                            imageUrl = if (isImage) {
+                                val urlRegex = "(https?://[^\\s]+)".toRegex()
+                                urlRegex.find(text)?.value ?: ""
+                            } else null,
+                            isPoll = isPoll,
+                            pollQuestion = if (isPoll) {
+                                text.split("\n").getOrNull(0)?.replace("📊 POLL:", "")?.trim()
+                            } else null,
+                            pollOptions = if (isPoll) {
+                                text.split("\n").drop(1).filter { it.isNotEmpty() }
+                            } else emptyList()
+                        )
                     )
                 }
 
-                _messages.value = chatMessages
+                val cachedLocal = LocalStorage.getLocalMessages(context, chatKey)
+                val cachedIds = cachedLocal.map { it.id }.toSet()
+
+                // 2. Separate own messages and other person's messages on Supabase
+                val (ownMsgs, otherMsgs) = supabaseMessages.partition { it.isOwn }
+
+                // 3. Mark incoming messages that are NOT yet in cachedLocal as unviewed server messages
+                val unviewedIncoming = otherMsgs.filter { it.id !in cachedIds }.map {
+                    it.copy(isUnviewedServerMessage = true)
+                }
+
+                // Delete any incoming messages from Supabase that are ALREADY in cachedLocal (leak prevention)
+                otherMsgs.filter { it.id in cachedIds }.forEach { msg ->
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            SupabaseRestClient.service.deleteValue("messages/$chatKey/${msg.id}")
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+
+                // 4. Combine cached local messages, unviewed incoming messages, and pending own messages with delivery status calculations
+                val ownIdsOnServer = ownMsgs.map { it.id }.toSet()
+                val partnerOnline = _partnerOnlineStatus.value
+                val chatKeySanitized = listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+                val partnerKey = sanitizeId(otherEmail)
+
+                val partnerSeenTs = try {
+                    val seenData = FirebaseRestClient.service.getValue("seen/$chatKeySanitized/$partnerKey") as? Map<*, *>
+                    (seenData?.get("ts") as? Number)?.toLong() ?: 0L
+                } catch (e: Exception) {
+                    0L
+                }
+
+                val finalMessages = (cachedLocal + unviewedIncoming + ownMsgs)
+                    .distinctBy { it.id }
+                    .map { msg ->
+                        if (msg.isOwn) {
+                            val status = if (msg.timestampMs <= partnerSeenTs) {
+                                "seen"
+                            } else if (msg.id in ownIdsOnServer) {
+                                if (partnerOnline == "online") "delivered" else "sent"
+                            } else {
+                                "seen"
+                            }
+                            msg.copy(deliveryStatus = status)
+                        } else {
+                            msg
+                        }
+                    }
+                    .sortedBy { it.timestampMs }
+                    .ifEmpty { getMockMessagesFor(current.email, otherEmail) }
+
+                withContext(Dispatchers.Main) {
+                    _messages.value = finalMessages
+                }
 
                 // Sync seen read receipt if current chat is active
-                markMessagesSeenForOther(otherEmail)
+                val hasNewIncoming = unviewedIncoming.isNotEmpty()
+                if (hasNewIncoming) {
+                    markMessagesSeenForOther(otherEmail, force = true)
+                } else {
+                    markMessagesSeenForOther(otherEmail)
+                }
 
             } catch (e: Exception) {
-                // Silent catch on offline cases
+                val chatKey = listOf(current.email, otherEmail).sorted().joinToString("__")
+                val cachedLocal = LocalStorage.getLocalMessages(context, chatKey)
+                withContext(Dispatchers.Main) {
+                    _messages.value = cachedLocal.ifEmpty { getMockMessagesFor(current.email, otherEmail) }
+                }
             } finally {
                 _chatLoading.value = false
             }
@@ -484,18 +897,54 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun selectChatUser(user: User?) {
+        val previousUser = _currentChatUser.value
         _currentChatUser.value = user
         _messages.value = emptyList()
         if (user != null) {
             _unreadCounts.value = _unreadCounts.value.toMutableMap().apply { remove(user.email) }
             LocalStorage.saveUnreadCounts(context, _unreadCounts.value)
             loadMessagesForConversation(user.email, isFirstLoad = true)
+            markMessagesSeenForOther(user.email, force = true)
+        } else {
+            if (previousUser != null) {
+                stopTypingForUser(previousUser.email)
+            }
+        }
+    }
+
+    fun viewAndDecryptMessage(otherEmail: String, msg: ChatMessage) {
+        val current = _currentUser.value ?: return
+        val chatKey = listOf(current.email, otherEmail).sorted().joinToString("__")
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // 1. Copy the message with isUnviewedServerMessage = false
+                val viewedMsg = msg.copy(isUnviewedServerMessage = false)
+
+                // 2. Save it to local cache
+                val currentCached = LocalStorage.getLocalMessages(context, chatKey)
+                val updated = (currentCached + viewedMsg).distinctBy { it.id }.sortedBy { it.timestampMs }
+                LocalStorage.saveLocalMessages(context, chatKey, updated)
+
+                // 3. Delete it from Supabase (the server)
+                SupabaseRestClient.service.deleteValue("messages/$chatKey/${msg.id}")
+
+                // 4. Reload the conversation
+                loadMessagesForConversation(otherEmail)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
     fun sendMessage(text: String, replyTo: ReplyToData? = null) {
         val current = _currentUser.value ?: return
         val chatUser = _currentChatUser.value ?: return
+
+        // Block if recipient name ends with '#'
+        if (chatUser.name.trim().endsWith("#")) {
+            _authError.value = "এই ব্যবহারকারীকে বার্তা পাঠানো সম্ভব নয় কারণ উনার নামের শেষে '#' রয়েছে।"
+            return
+        }
 
         if (_deletedConversations.value.contains(chatUser.email)) {
             restoreConversation(chatUser.email)
@@ -504,26 +953,54 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         _isSending.value = true
 
         viewModelScope.launch(Dispatchers.IO) {
-            val formattedMsg = "@${current.email}: $text"
-            val timestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date())
             val participants = listOf(current.email, chatUser.email).sorted()
-            val replyJson = replyTo?.let { "{\"id\":\"${it.id}\",\"text\":\"${it.text}\",\"user\":\"${it.user}\"}" }
+            val chatKey = participants.joinToString("__")
+
+            val msgId = "msg_" + System.currentTimeMillis() + "_" + (1000..9999).random()
+
+            val localMsg = ChatMessage(
+                id = msgId,
+                senderName = current.name,
+                senderEmail = current.email,
+                text = text,
+                timestampMs = System.currentTimeMillis(),
+                replyTo = replyTo,
+                isOwn = true,
+                isLocal = false,
+                isImage = text.endsWith(".jpg") || text.endsWith(".png") || text.endsWith(".gif") || text.endsWith(".webp") || text.contains(".jpg?") || text.contains(".png?"),
+                imageUrl = if (text.endsWith(".jpg") || text.endsWith(".png") || text.endsWith(".gif") || text.endsWith(".webp") || text.contains(".jpg?") || text.contains(".png?")) {
+                    val urlRegex = "(https?://[^\\s]+)".toRegex()
+                    urlRegex.find(text)?.value ?: ""
+                } else null,
+                isPoll = text.startsWith("📊 POLL:"),
+                pollQuestion = if (text.startsWith("📊 POLL:")) {
+                    text.split("\n").getOrNull(0)?.replace("📊 POLL:", "")?.trim()
+                } else null,
+                pollOptions = if (text.startsWith("📊 POLL:")) {
+                    text.split("\n").drop(1).filter { it.isNotEmpty() }
+                } else emptyList()
+            )
+
+            // Save to local host immediately
+            val updatedLocal = (LocalStorage.getLocalMessages(context, chatKey) + localMsg)
+            LocalStorage.saveLocalMessages(context, chatKey, updatedLocal)
 
             try {
-                // Post network action
-                RetrofitClient.echoChatApi.sendMessage(
-                    url = scriptUrl,
-                    message = formattedMsg,
-                    timestamp = timestamp,
-                    username = current.email,
-                    participantsJson = JSONArray(participants).toString(),
-                    replyToJson = replyJson
+                // Post to Supabase
+                val msgMap = mapOf(
+                    "id" to msgId,
+                    "sender" to current.email,
+                    "text" to text,
+                    "timestamp" to System.currentTimeMillis(),
+                    "replyTo" to replyTo?.let { mapOf("id" to it.id, "text" to it.text, "user" to it.user) }
                 )
+                SupabaseRestClient.service.setValue("messages/$chatKey/$msgId", msgMap)
+
                 // Reload
                 loadMessagesForConversation(chatUser.email)
             } catch (e: Exception) {
-                // fallback to local appending for immediate feedback
-                // normally GAS serves fast
+                // Already saved locally, reload to reflect
+                loadMessagesForConversation(chatUser.email)
             } finally {
                 withContext(Dispatchers.Main) {
                     _isSending.value = false
@@ -570,12 +1047,20 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    private var lastTypingSentTime = 0L
+
     // Typing Indicators Sync with Firebase
     fun sendTyping() {
         val current = _currentUser.value ?: return
         val chatUser = _currentChatUser.value ?: return
         val chatKey = listOf(current.email, chatUser.email).sorted().map(::sanitizeId).joinToString("__")
         val userKey = sanitizeId(current.email)
+
+        val now = System.currentTimeMillis()
+        if (now - lastTypingSentTime < 2500) {
+            return // Throttled to avoid database spam on every keystroke
+        }
+        lastTypingSentTime = now
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
@@ -591,6 +1076,18 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         val current = _currentUser.value ?: return
         val chatUser = _currentChatUser.value ?: return
         val chatKey = listOf(current.email, chatUser.email).sorted().map(::sanitizeId).joinToString("__")
+        val userKey = sanitizeId(current.email)
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                FirebaseRestClient.service.deleteValue("typing/$chatKey/$userKey")
+            } catch (e: Exception) {}
+        }
+    }
+
+    fun stopTypingForUser(otherEmail: String) {
+        val current = _currentUser.value ?: return
+        val chatKey = listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
         val userKey = sanitizeId(current.email)
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -689,6 +1186,38 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         loadAllConversationsAndUsers()
     }
 
+    fun deleteMessage(msgId: String) {
+        val current = _currentUser.value ?: return
+        val chatUser = _currentChatUser.value ?: return
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // Automatically delete from Google Sheet
+                RetrofitClient.echoChatApi.deleteMessage(
+                    url = scriptUrl,
+                    id = msgId,
+                    sender = current.email
+                )
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            // Trigger local reload. Local messages will still merge and remain in SharedPreferences cache
+            loadMessagesForConversation(chatUser.email)
+        }
+    }
+
+    private suspend fun deleteMessageFromSheetQuietly(msgId: String, senderEmail: String) {
+        try {
+            RetrofitClient.echoChatApi.deleteMessage(
+                url = scriptUrl,
+                id = msgId,
+                sender = senderEmail
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     fun restoreConversation(email: String) {
         LocalStorage.restoreConversation(context, email)
         _deletedConversations.value = LocalStorage.getDeletedConversations(context)
@@ -770,6 +1299,23 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun getPairingCode(fromEmail: String, toEmail: String): String {
+        val sortedString = listOf(fromEmail.lowercase().trim(), toEmail.lowercase().trim()).sorted().joinToString("|")
+        val hash = sortedString.hashCode().coerceAtLeast(0)
+        return String.format("%06d", hash % 1000000)
+    }
+
+    fun acceptPairRequestWithCode(fromEmail: String, enteredCode: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        val current = _currentUser.value ?: return
+        val correctCode = getPairingCode(fromEmail, current.email)
+        if (enteredCode.trim() == correctCode) {
+            respondToPairRequest(fromEmail, accept = true)
+            onSuccess()
+        } else {
+            onError("ভুল পেয়ারিং কোড! দয়া করে আবার চেষ্টা করুন।")
+        }
+    }
+
     fun removePair(password: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
         val current = _currentUser.value ?: return
         _authLoading.value = true
@@ -836,6 +1382,32 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    fun sendPairingCodeFirebase(targetEmail: String, code: String) {
+        val current = _currentUser.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val data = mapOf(
+                    "fromEmail" to current.email,
+                    "fromName" to current.name,
+                    "code" to code
+                )
+                FirebaseRestClient.service.setValue("pairing_codes/${sanitizeId(targetEmail)}", data)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun removePairingCodeFirebase(myEmail: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                FirebaseRestClient.service.deleteValue("pairing_codes/${sanitizeId(myEmail)}")
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     private suspend fun pollPairRequestsAndRecoveryCode(user: User) {
         try {
             // Check incoming requests
@@ -859,6 +1431,21 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             } else {
                 withContext(Dispatchers.Main) {
                     _partnerResetCode.value = null
+                }
+            }
+
+            // Check incoming pairing code from Firebase
+            val fbCodeData = FirebaseRestClient.service.getValue("pairing_codes/${sanitizeId(user.email)}") as? Map<*, *>
+            if (fbCodeData != null) {
+                val fromEmail = fbCodeData["fromEmail"] as? String ?: ""
+                val fromName = fbCodeData["fromName"] as? String ?: ""
+                val code = fbCodeData["code"] as? String ?: ""
+                withContext(Dispatchers.Main) {
+                    _incomingPairCodeData.value = mapOf("fromEmail" to fromEmail, "fromName" to fromName, "code" to code)
+                }
+            } else {
+                withContext(Dispatchers.Main) {
+                    _incomingPairCodeData.value = null
                 }
             }
         } catch (e: Exception) {}
@@ -1255,8 +1842,17 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         setDarkMode(shouldBeDark)
     }
 
-    private fun markMessagesSeenForOther(otherEmail: String) {
+    private val lastSeenSyncTime = mutableMapOf<String, Long>()
+
+    private fun markMessagesSeenForOther(otherEmail: String, force: Boolean = false) {
         val current = _currentUser.value ?: return
+        val now = System.currentTimeMillis()
+        val lastSync = lastSeenSyncTime[otherEmail] ?: 0L
+        if (!force && now - lastSync < 15000) {
+            return // Skip to avoid spamming the database
+        }
+        lastSeenSyncTime[otherEmail] = now
+
         val chatKey = listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
         val userKey = sanitizeId(current.email)
         viewModelScope.launch(Dispatchers.IO) {
