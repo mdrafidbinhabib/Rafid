@@ -275,58 +275,11 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun getMockContactsList(currentUserName: String): List<User> {
-        return listOf(
-            User(
-                email = "anika.rahman@example.com",
-                name = "Anika Rahman [{1234}($currentUserName)] ৳", // Locked with 1234 PIN
-                photoUrl = "https://images.unsplash.com/photo-1494790108377-be9c29b29330?auto=format&fit=crop&w=150&q=80"
-            ),
-            User(
-                email = "mrs.keya@example.com",
-                name = "Keya Chowdhury (Verified) #", // Custom logo & Highlight
-                photoUrl = "https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=150&q=80"
-            ),
-            User(
-                email = "tasnim.islam@example.com",
-                name = "Dr. Tasnim Islam 🌟", // Highlighted
-                photoUrl = "https://images.unsplash.com/photo-1544005313-94ddf0286df2?auto=format&fit=crop&w=150&q=80"
-            ),
-            User(
-                email = "tahmid@example.com",
-                name = "Tahmid Ahmed ⚙️",
-                photoUrl = "https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?auto=format&fit=crop&w=150&q=80"
-            )
-        )
+        return emptyList()
     }
 
     fun getMockMessagesFor(currentEmail: String, otherEmail: String): List<ChatMessage> {
-        val now = System.currentTimeMillis()
-        val otherName = otherEmail.split("@")[0].replace(".", " ").replaceFirstChar { it.uppercase() }
-        return when (otherEmail) {
-            "anika.rahman@example.com" -> listOf(
-                ChatMessage(id = "m1", senderName = otherName, senderEmail = otherEmail, text = "আসসালামু আলাইকুম রাফিদ! কেমন আছো?", timestampMs = now - 60000 * 10, isOwn = false),
-                ChatMessage(id = "m2", senderName = "Md. Rafid", senderEmail = currentEmail, text = "ওয়ালাইকুমুস সালাম নিপা। আলহামদুলিল্লাহ ভালো। তুমি কেমন আছো?", timestampMs = now - 60000 * 9, isOwn = true),
-                ChatMessage(id = "m3", senderName = otherName, senderEmail = otherEmail, text = "আমিও ভালো আছি! নতুন চ্যাট থিমগুলো দেখছ? কি অসাধারণ ডিজাইন না!", timestampMs = now - 60000 * 8, isOwn = false),
-                ChatMessage(id = "m4", senderName = "Md. Rafid", senderEmail = currentEmail, text = "হ্যাঁ, বিশেষ করে Neon আর Midnight থিমগুলো আমার সবচেয়ে প্রিয়! জাস্ট জাদুকরী দেখায়!", timestampMs = now - 60000 * 7, isOwn = true),
-                ChatMessage(id = "m5", senderName = otherName, senderEmail = otherEmail, text = "একদম! অ্যাপের কালার ও গ্রেডিয়েন্ট পুরো ব্যাকগ্রাউন্ডেই থিম অনুযায়ী ডাইনামিকালি পরিবর্তিত হচ্ছে। চলো, একটি থিম চেঞ্জ করে ট্রাই করে দেখা যাক! 🎨✨", timestampMs = now - 60000 * 5, isOwn = false)
-            )
-            "mrs.keya@example.com" -> listOf(
-                ChatMessage(id = "k1", senderName = otherName, senderEmail = otherEmail, text = "আসসালামু আলাইকুম রাফিদ ভাই! ভেরিফাইড ব্যাজ পাওয়ার সাথে কালার অ্যানিমেশন এবং লোগো ফিচারটি সত্যিই অনবদ্য হয়েছে!", timestampMs = now - 60000 * 12, isOwn = false),
-                ChatMessage(id = "k2", senderName = "Md. Rafid", senderEmail = currentEmail, text = "ওয়ালাইকুমুস সালাম কিয়া। অনেক অনেক ধন্যবাদ! হ্যাঁ, ওটা খুবই লাক্সারি লুক দেয়!", timestampMs = now - 60000 * 10, isOwn = true),
-                ChatMessage(id = "k3", senderName = otherName, senderEmail = otherEmail, text = "চ্যাটের সিকিউরিটি পিন ও অটো রেসপন্স ট্র্যাকিং নিয়েও কি কাজ হচ্ছে?", timestampMs = now - 60000 * 8, isOwn = false),
-                ChatMessage(id = "k4", senderName = "Md. Rafid", senderEmail = currentEmail, text = "হ্যাঁ, চ্যাটটি ৩-৫ ডিজিটের পিন দিয়ে ডাইনামিক্যালি লক করতে পারবে। রিকভার করার জন্য recovery pair ওয়ান-ট্যাপ সিকিউরড মেথড রয়েছে।", timestampMs = now - 60000 * 6, isOwn = true),
-                ChatMessage(id = "k5", senderName = otherName, senderEmail = otherEmail, text = "অসাধারণ! চ্যাট অ্যাপের এরকম আধুনিক ফিচার আগে দেখিনি।", timestampMs = now - 60000 * 4, isOwn = false)
-            )
-            "tasnim.islam@example.com" -> listOf(
-                ChatMessage(id = "t1", senderName = otherName, senderEmail = otherEmail, text = "হ্যালো রাফিদ ভাই, গোল্ডেন অ্যানিমেশন ফিচারের কাজ কতদূর?", timestampMs = now - 60000 * 15, isOwn = false),
-                ChatMessage(id = "t2", senderName = "Md. Rafid", senderEmail = currentEmail, text = "হাই ডক্টর তাসনিম, গোল্ডেন অ্যানিমেশনটি এখন সম্পূর্ণ চ্যাট লিস্ট এবং হেডারগুলোতে ডাইনামিক গ্লো রিদম যুক্ত করে!", timestampMs = now - 60000 * 12, isOwn = true),
-                ChatMessage(id = "t3", senderName = otherName, senderEmail = otherEmail, text = "দারুণ! এতে চোখেরও আরাম হয় আর প্রিমিয়ামনেস অনেক বেড়ে যায়।", timestampMs = now - 60000 * 10, isOwn = false)
-            )
-            else -> listOf(
-                ChatMessage(id = "g1", senderName = otherName, senderEmail = otherEmail, text = "আসসালামু আলাইকুম! কেমন আছেন?", timestampMs = now - 60000 * 5, isOwn = false),
-                ChatMessage(id = "g2", senderName = "Md. Rafid", senderEmail = currentEmail, text = "ওয়ালাইকুমুস সালাম। আলহামদুলিল্লাহ ভালো! আমাদের Echo Chat অ্যাপের থিমগুলো অন্বেষণ করতে প্রোফাইল সেটিংসে জান।", timestampMs = now - 60000 * 3, isOwn = true)
-            )
-        }
+        return emptyList()
     }
 
     fun loginDemo(email: String = "md.r.rafid1234@gmail.com") {

@@ -625,18 +625,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     var isSearchLoading by remember { mutableStateOf(false) }
     var searchField by remember { mutableStateOf("") }
 
-    val googleUsers = remember {
-        listOf(
-            User(email = "support@google.com", name = "Google Support", photoUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"),
-            User(email = "sundar@google.com", name = "Sundar Pichai", photoUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"),
-            User(email = "larry@google.com", name = "Larry Page", photoUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"),
-            User(email = "sergey@google.com", name = "Sergey Brin", photoUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"),
-            User(email = "assistant@google.com", name = "Google Assistant", photoUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"),
-            User(email = "cloud@google.com", name = "Google Cloud Service", photoUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"),
-            User(email = "ai@google.com", name = "Google AI Team", photoUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png"),
-            User(email = "android@google.com", name = "Android Developer Support", photoUrl = "https://www.google.com/images/branding/googlelogo/1x/googlelogo_color_272x92dp.png")
-        )
-    }
+
 
     var lockPromptEmail by remember { mutableStateOf<String?>(null) }
     var lockPromptPassword by remember { mutableStateOf("") }
@@ -823,12 +812,12 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         }
                     } else {
                         val filteredUsers = if (searchField.isNotEmpty()) {
-                            (allActiveUsers + googleUsers).filter { u ->
+                            allActiveUsers.filter { u ->
                                 u.name.lowercase().contains(searchField.lowercase()) ||
                                         u.email.lowercase().contains(searchField.lowercase())
                             }.distinctBy { it.email }
                         } else {
-                            googleUsers.shuffled()
+                            allActiveUsers.shuffled()
                         }
 
                         if (searchField.isNotEmpty() && filteredUsers.isEmpty()) {
