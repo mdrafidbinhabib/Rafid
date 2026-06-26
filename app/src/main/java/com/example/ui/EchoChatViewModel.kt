@@ -1,6 +1,7 @@
 package com.example.ui
 
 import android.app.Application
+import android.content.Context
 import android.os.Handler
 import android.os.Looper
 import androidx.lifecycle.AndroidViewModel
@@ -120,6 +121,25 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     private val _partnerResetCode = MutableStateFlow<String?>(null)
     val partnerResetCode: StateFlow<String?> = _partnerResetCode.asStateFlow()
+
+    private val _perChatWallpaper = MutableStateFlow<Map<String, String>>(emptyMap())
+    val perChatWallpaper: StateFlow<Map<String, String>> = _perChatWallpaper.asStateFlow()
+
+    private val deliveredMessageIds = mutableSetOf<String>().apply {
+        try {
+            addAll(context.getSharedPreferences("EchoChatPrefs", Context.MODE_PRIVATE).getStringSet("DELIVERED_MSG_IDS", emptySet()) ?: emptySet())
+        } catch (e: Exception) {}
+    }
+
+    private fun saveDeliveredMessageId(msgId: String) {
+        if (deliveredMessageIds.add(msgId)) {
+            try {
+                context.getSharedPreferences("EchoChatPrefs", Context.MODE_PRIVATE).edit()
+                    .putStringSet("DELIVERED_MSG_IDS", deliveredMessageIds)
+                    .apply()
+            } catch (e: Exception) {}
+        }
+    }
 
     // Voice Calling States
     private val _callState = MutableStateFlow<CallState>(CallState.Idle)
@@ -415,10 +435,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             try {
                 var finalPhotoUrl = photoUrl ?: current.photoUrl ?: ""
                 if (!base64Photo.isNullOrEmpty()) {
-                    val photoRes = RetrofitClient.echoChatApi.uploadPhoto(scriptUrl, email = current.email, base64PhotoData = base64Photo)
-                    if (photoRes.status == "success" && photoRes.message != null) {
-                        finalPhotoUrl = photoRes.message
-                    }
+                    finalPhotoUrl = "data:image/jpeg;base64,$base64Photo"
                 }
 
                 val updatedUser = current.copy(
@@ -717,6 +734,22 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
                 val chatKey = listOf(current.email, otherEmail).sorted().joinToString("__")
 
+                val chatKeySanitized = listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+                val remoteWallpaper = try {
+                    FirebaseRestClient.service.getValue("chat_wallpapers/$chatKeySanitized") as? String
+                } catch (e: Exception) {
+                    null
+                }
+                withContext(Dispatchers.Main) {
+                    val updated = _perChatWallpaper.value.toMutableMap()
+                    if (remoteWallpaper != null) {
+                        updated[otherEmail] = remoteWallpaper
+                    } else {
+                        updated.remove(otherEmail)
+                    }
+                    _perChatWallpaper.value = updated
+                }
+
                 // 1. Fetch pending messages from Supabase under messages/$chatKey
                 val supabaseResult = try {
                     SupabaseRestClient.service.getValue("messages/$chatKey") as? Map<*, *>
@@ -796,7 +829,6 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 // 4. Combine cached local messages, unviewed incoming messages, and pending own messages with delivery status calculations
                 val ownIdsOnServer = ownMsgs.map { it.id }.toSet()
                 val partnerOnline = _partnerOnlineStatus.value
-                val chatKeySanitized = listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
                 val partnerKey = sanitizeId(otherEmail)
 
                 val partnerSeenTs = try {
@@ -810,10 +842,16 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     .distinctBy { it.id }
                     .map { msg ->
                         if (msg.isOwn) {
+                            val isDelivered = msg.id in deliveredMessageIds || partnerOnline == "online"
                             val status = if (msg.timestampMs <= partnerSeenTs) {
                                 "seen"
                             } else if (msg.id in ownIdsOnServer) {
-                                if (partnerOnline == "online") "delivered" else "sent"
+                                if (isDelivered) {
+                                    saveDeliveredMessageId(msg.id)
+                                    "delivered"
+                                } else {
+                                    "sent"
+                                }
                             } else {
                                 "seen"
                             }
@@ -892,6 +930,12 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     fun sendMessage(text: String, replyTo: ReplyToData? = null) {
         val current = _currentUser.value ?: return
         val chatUser = _currentChatUser.value ?: return
+
+        // Instant prepending to make sure sent-to user is at the top of recentChats/dashboard
+        val currentRecents = _recentChats.value.toMutableList()
+        currentRecents.removeAll { it.email.lowercase() == chatUser.email.lowercase() }
+        currentRecents.add(0, chatUser)
+        _recentChats.value = currentRecents
 
         // Block if recipient name ends with '#'
         if (chatUser.name.trim().endsWith("#")) {
@@ -1266,6 +1310,51 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             onSuccess()
         } else {
             onError("ভুল পেয়ারিং কোড! দয়া করে আবার চেষ্টা করুন।")
+        }
+    }
+
+    fun setPerChatWallpaper(otherEmail: String, wallpaper: String) {
+        val current = _currentUser.value ?: return
+        val chatKeySanitized = listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                FirebaseRestClient.service.setValue("chat_wallpapers/$chatKeySanitized", wallpaper)
+                withContext(Dispatchers.Main) {
+                    val updated = _perChatWallpaper.value.toMutableMap()
+                    updated[otherEmail] = wallpaper
+                    _perChatWallpaper.value = updated
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun pairDirectlyWithUser(targetEmail: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        val current = _currentUser.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val sendRes = RetrofitClient.echoChatApi.sendPairRequest(scriptUrl, fromEmail = current.email, toEmail = targetEmail)
+                val respondRes = RetrofitClient.echoChatApi.respondPairRequest(
+                    url = scriptUrl,
+                    fromEmail = current.email,
+                    toEmail = targetEmail,
+                    accept = "true"
+                )
+                
+                FirebaseRestClient.service.deleteValue("pairing_codes/${sanitizeId(targetEmail)}")
+                FirebaseRestClient.service.deleteValue("pairing_codes/${sanitizeId(current.email)}")
+                
+                requestPairRecoveryData()
+                
+                withContext(Dispatchers.Main) {
+                    onSuccess()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onError("সংযোগ সম্পন্ন করতে সমস্যা হয়েছে: ${e.message}")
+                }
+            }
         }
     }
 

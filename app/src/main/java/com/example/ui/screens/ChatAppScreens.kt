@@ -63,6 +63,70 @@ import org.json.JSONObject
 import java.io.InputStream
 import java.text.SimpleDateFormat
 import java.util.*
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.ColorFilter
+import androidx.compose.ui.graphics.vector.rememberVectorPainter
+
+fun decodeBase64ToBitmap(base64Str: String): Bitmap? {
+    return try {
+        val pureBase64 = if (base64Str.contains(",")) {
+            base64Str.substring(base64Str.indexOf(",") + 1)
+        } else {
+            base64Str
+        }
+        val decodedBytes = android.util.Base64.decode(pureBase64, android.util.Base64.DEFAULT)
+        BitmapFactory.decodeByteArray(decodedBytes, 0, decodedBytes.size)
+    } catch (e: Exception) {
+        null
+    }
+}
+
+@Composable
+fun SafeAvatarImage(
+    model: String?,
+    contentDescription: String?,
+    modifier: Modifier = Modifier,
+    contentScale: ContentScale = ContentScale.Crop,
+    alpha: Float = 1.0f
+) {
+    if (model.isNullOrEmpty()) {
+        Image(
+            imageVector = Icons.Default.AccountCircle,
+            contentDescription = contentDescription,
+            modifier = modifier,
+            colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.primary.copy(alpha = alpha)),
+            contentScale = contentScale
+        )
+    } else if (model.startsWith("data:image/")) {
+        val bitmap = remember(model) { decodeBase64ToBitmap(model) }
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = contentDescription,
+                modifier = modifier,
+                alpha = alpha,
+                contentScale = contentScale
+            )
+        } else {
+            Image(
+                imageVector = Icons.Default.AccountCircle,
+                contentDescription = contentDescription,
+                modifier = modifier,
+                colorFilter = ColorFilter.tint(MaterialTheme.colorScheme.primary.copy(alpha = alpha)),
+                contentScale = contentScale
+            )
+        }
+    } else {
+        AsyncImage(
+            model = model,
+            contentDescription = contentDescription,
+            modifier = modifier,
+            alpha = alpha,
+            contentScale = contentScale,
+            error = rememberVectorPainter(Icons.Default.AccountCircle)
+        )
+    }
+}
 
 // Root App Screen Router
 @Composable
@@ -752,7 +816,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                     fontWeight = FontWeight.Bold
                                 )
                             } else {
-                                AsyncImage(
+                                SafeAvatarImage(
                                     model = currentUser?.photoUrl,
                                     contentDescription = null,
                                     contentScale = ContentScale.Crop,
@@ -1434,7 +1498,7 @@ fun UserItemRow(
                     )
                 }
             } else {
-                AsyncImage(
+                SafeAvatarImage(
                     model = user.photoUrl,
                     contentDescription = null,
                     contentScale = ContentScale.Crop,
@@ -1597,6 +1661,8 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
     val premiumVerifiedColors by viewModel.premiumVerifiedColors.collectAsState()
 
     val chatWallpaper by viewModel.chatWallpaper.collectAsState()
+    val perChatWallpapers by viewModel.perChatWallpaper.collectAsState()
+    val perChatWallpaperVal = chatUser?.email?.let { perChatWallpapers[it] }
     val soundEnabled by viewModel.soundEnabled.collectAsState()
     val autoScrollLocked by viewModel.autoScrollLocked.collectAsState()
 
@@ -1865,10 +1931,37 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
                     })
                     .then(Modifier.background(MaterialTheme.colorScheme.background))
             ) {
+                // If the wallpaper is "receiver_center", show a large centered watermark of the partner's profile photo
+                if (perChatWallpaperVal == "receiver_center") {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (!chatUser?.photoUrl.isNullOrEmpty()) {
+                            SafeAvatarImage(
+                                model = chatUser?.photoUrl,
+                                contentDescription = null,
+                                alpha = 0.12f,
+                                modifier = Modifier.size(240.dp).clip(CircleShape),
+                                contentScale = ContentScale.Crop
+                            )
+                        } else {
+                            Icon(
+                                imageVector = Icons.Default.Person,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.08f),
+                                modifier = Modifier.size(240.dp)
+                            )
+                        }
+                    }
+                }
+
                 // If it is a custom wallpaper, render it with Coil AsyncImage as a background
-                if (chatWallpaper.isNotEmpty() && chatWallpaper != "none" && chatWallpaper != "dots" && chatWallpaper != "grid" && chatWallpaper != "waves" && chatWallpaper != "stars") {
+                val currentWallpaper = perChatWallpaperVal ?: chatWallpaper
+                if (currentWallpaper.isNotEmpty() && currentWallpaper != "none" && currentWallpaper != "dots" && currentWallpaper != "grid" && currentWallpaper != "waves" && currentWallpaper != "stars" && currentWallpaper != "receiver_center") {
                     AsyncImage(
-                        model = chatWallpaper,
+                        model = currentWallpaper,
                         contentDescription = "Custom Wallpaper",
                         contentScale = androidx.compose.ui.layout.ContentScale.Crop,
                         alpha = 0.35f,
@@ -1908,9 +2001,64 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
                 }
                 
                 // Wallpaper support overlays
-                if (chatWallpaper != "none") {
+                val activeWallpaper = perChatWallpaperVal ?: chatWallpaper
+                if (activeWallpaper != "none" && activeWallpaper.isNotEmpty()) {
                     Canvas(modifier = Modifier.fillMaxSize()) {
-                        // Drawing overlays
+                        when (activeWallpaper) {
+                            "dots" -> {
+                                val dotRadius = 2f
+                                val spacing = 40f
+                                for (x in 0..size.width.toInt() step spacing.toInt()) {
+                                    for (y in 0..size.height.toInt() step spacing.toInt()) {
+                                        drawCircle(
+                                            color = Color.LightGray.copy(alpha = 0.2f),
+                                            radius = dotRadius,
+                                            center = Offset(x.toFloat(), y.toFloat())
+                                        )
+                                    }
+                                }
+                            }
+                            "grid" -> {
+                                val spacing = 60f
+                                for (x in 0..size.width.toInt() step spacing.toInt()) {
+                                    drawLine(
+                                        color = Color.LightGray.copy(alpha = 0.12f),
+                                        start = Offset(x.toFloat(), 0f),
+                                        end = Offset(x.toFloat(), size.height),
+                                        strokeWidth = 1f
+                                    )
+                                }
+                                for (y in 0..size.height.toInt() step spacing.toInt()) {
+                                    drawLine(
+                                        color = Color.LightGray.copy(alpha = 0.12f),
+                                        start = Offset(0f, y.toFloat()),
+                                        end = Offset(size.width, y.toFloat()),
+                                        strokeWidth = 1f
+                                    )
+                                }
+                            }
+                            "sunset" -> {
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(Color(0xFFFF7E5F).copy(alpha = 0.08f), Color(0xFFFEB47B).copy(alpha = 0.08f))
+                                    )
+                                )
+                            }
+                            "ocean" -> {
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(Color(0xFF2E0854).copy(alpha = 0.08f), Color(0xFF00C9FF).copy(alpha = 0.08f))
+                                    )
+                                )
+                            }
+                            "forest" -> {
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(Color(0xFF134E5E).copy(alpha = 0.08f), Color(0xFF71B280).copy(alpha = 0.08f))
+                                    )
+                                )
+                            }
+                        }
                     }
                 }
             }
@@ -1982,10 +2130,17 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
     if (showWallpaperDialog) {
         AlertDialog(
             onDismissRequest = { showWallpaperDialog = false },
-            title = { Text("🖼️ Chat Wallpaper") },
+            title = { Text("🖼️ চ্যাট ওয়ালপেপার (Wallpaper)") },
             text = {
                 Column {
-                    listOf("none" to "None", "dots" to "Dots", "grid" to "Grid", "waves" to "Waves", "stars" to "Stars").forEach { (k, name) ->
+                    Text("ব্যক্তিগত ওয়ালপেপার (শুধুমাত্র আপনার ফোনে):", fontWeight = FontWeight.Bold, fontSize = 12.sp, modifier = Modifier.padding(8.dp))
+                    listOf(
+                        "none" to "None (ডিফল্ট)",
+                        "dots" to "Dots (বিন্দু)",
+                        "grid" to "Grid (গ্রিড)",
+                        "waves" to "Waves (ঢেউ)",
+                        "stars" to "Stars (তারা)"
+                    ).forEach { (k, name) ->
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1996,6 +2151,30 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
                                 .padding(12.dp)
                         ) {
                             Text(name)
+                        }
+                    }
+                    
+                    Divider(modifier = Modifier.padding(vertical = 8.dp))
+                    
+                    Text("দ্বিপাক্ষিক ওয়ালপেপার (উভয় ব্যবহারকারীর ফোনে):", fontWeight = FontWeight.Bold, fontSize = 12.sp, color = MaterialTheme.colorScheme.primary, modifier = Modifier.padding(8.dp))
+                    listOf(
+                        "receiver_center" to "Receiver Center Photo (গ্রাহকের ছবি সেন্টারে)",
+                        "sunset" to "Sunset Gradient (সূর্যাস্ত থিম)",
+                        "ocean" to "Ocean Gradient (মহাসাগর থিম)",
+                        "forest" to "Forest Gradient (অরণ্য থিম)"
+                    ).forEach { (k, name) ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    chatUser?.email?.let { otherEmail ->
+                                        viewModel.setPerChatWallpaper(otherEmail, k)
+                                    }
+                                    showWallpaperDialog = false
+                                }
+                                .padding(12.dp)
+                        ) {
+                            Text(name, color = MaterialTheme.colorScheme.primary)
                         }
                     }
                 }
