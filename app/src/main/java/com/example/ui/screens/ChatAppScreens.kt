@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
@@ -143,10 +144,20 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
                 .fillMaxSize()
                 .background(bgBrush)
         ) {
-            if (currentUser == null) {
-                AuthScreen(viewModel = viewModel)
-            } else {
-                DashboardScreen(viewModel = viewModel)
+            AnimatedContent(
+                targetState = currentUser == null,
+                transitionSpec = {
+                    (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessLow)) + scaleIn(initialScale = 0.9f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))).togetherWith(
+                        fadeOut(animationSpec = spring(stiffness = Spring.StiffnessLow)) + scaleOut(targetScale = 0.9f, animationSpec = spring(stiffness = Spring.StiffnessLow))
+                    )
+                },
+                label = "app_screens_transition"
+            ) { isAuthRequired ->
+                if (isAuthRequired) {
+                    AuthScreen(viewModel = viewModel)
+                } else {
+                    DashboardScreen(viewModel = viewModel)
+                }
             }
 
             // Global Overlays (e.g. Calls)
@@ -160,22 +171,33 @@ fun MyCustomTheme(
     isDarkMode: Boolean,
     content: @Composable () -> Unit
 ) {
-    // Override M3 ColorScheme based on dark mode preferences
     val colorScheme = if (isDarkMode) {
         darkColorScheme(
-            primary = Color(0xFF6366F1),
-            secondary = Color(0xFF9065f7),
-            tertiary = Color(0xFFEC4899),
-            background = Color(0xFF0F0C29),
-            surface = Color(0x26FFFFFF)
+            primary = Color(0xFFFF5722), // Vibrant Sunset Coral
+            secondary = Color(0xFFE040FB), // Vibrant Neon Orchid
+            tertiary = Color(0xFF00E676), // Glow Mint
+            background = Color(0xFF070A13), // Deep Cosmic Dark Void
+            surface = Color(0xFF0F1524), // Rich Cosmic Slate Card
+            onPrimary = Color.White,
+            onSecondary = Color.Black,
+            onBackground = Color(0xFFF8FAFC),
+            onSurface = Color(0xFFF1F5F9),
+            surfaceVariant = Color(0xFF1E2638),
+            onSurfaceVariant = Color(0xFF94A3B8)
         )
     } else {
         lightColorScheme(
-            primary = Color(0xFF4F46E5),
-            secondary = Color(0xFF8B5CF6),
-            tertiary = Color(0xFFEC4899),
-            background = Color(0xFFF1F5F9),
-            surface = Color(0xD9FFFFFF)
+            primary = Color(0xFF6200EE), // Royal Violet
+            secondary = Color(0xFF00B0FF), // Vivid Sky Blue
+            tertiary = Color(0xFFFF4081), // Vibrant Rose Accent
+            background = Color(0xFFF4F6FA), // Cool Ice Grey Background
+            surface = Color.White,
+            onPrimary = Color.White,
+            onSecondary = Color.White,
+            onBackground = Color(0xFF1A1F36),
+            onSurface = Color(0xFF1E233D),
+            surfaceVariant = Color(0xFFECEFF5),
+            onSurfaceVariant = Color(0xFF4A5568)
         )
     }
 
@@ -316,35 +338,7 @@ fun AuthScreen(viewModel: EchoChatViewModel) {
                     }
                 }
 
-                // Initial Login Warning Notice Card
-                Card(
-                    colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.25f)
-                    ),
-                    shape = RoundedCornerShape(12.dp),
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(bottom = 16.dp)
-                ) {
-                    Row(
-                        modifier = Modifier.padding(12.dp),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Warning,
-                            contentDescription = "Warning",
-                            tint = MaterialTheme.colorScheme.error,
-                            modifier = Modifier.size(20.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        Text(
-                            text = "Note: No chat will be deleted until this ID is logged in to another phone.",
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onErrorContainer
-                        )
-                    }
-                }
+
 
                 if (authError != null) {
                     Text(
@@ -689,6 +683,12 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     var isSearchLoading by remember { mutableStateOf(false) }
     var searchField by remember { mutableStateOf("") }
 
+    val myGroups by viewModel.myGroups.collectAsState()
+    val groupMembers by viewModel.groupMembers.collectAsState()
+    var dashboardTab by remember { mutableStateOf("all") }
+    var showGroupCustomizerDialog by remember { mutableStateOf(false) }
+    var groupToEdit by remember { mutableStateOf<User?>(null) }
+
 
 
     var lockPromptEmail by remember { mutableStateOf<String?>(null) }
@@ -747,10 +747,25 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     var pinUnlockValue by remember { mutableStateOf("") }
     var pinUnlockError by remember { mutableStateOf(false) }
 
-    if (currentChatUser != null) {
-        ChatWindowScreen(viewModel = viewModel)
-    } else {
-        Scaffold(
+    AnimatedContent(
+        targetState = currentChatUser,
+        transitionSpec = {
+            if (targetState != null) {
+                (slideInHorizontally(animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)) { width -> width } + fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))).togetherWith(
+                    slideOutHorizontally(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) { width -> -width } + fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
+                )
+            } else {
+                (slideInHorizontally(animationSpec = spring(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)) { width -> -width } + fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))).togetherWith(
+                    slideOutHorizontally(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) { width -> width } + fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
+                )
+            }
+        },
+        label = "dashboard_chat_window_transition"
+    ) { chatUser ->
+        if (chatUser != null) {
+            ChatWindowScreen(viewModel = viewModel, onEditGroup = { groupToEdit = it; showGroupCustomizerDialog = true })
+        } else {
+            Scaffold(
             topBar = {
                 TopAppBar(
                     title = {
@@ -841,6 +856,36 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                     .fillMaxSize()
                     .padding(padding)
             ) {
+                if (!isSearchActive) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        TabPill(text = "🌐 All", active = (dashboardTab == "all"), onClick = { dashboardTab = "all" })
+                        TabPill(text = "💬 Chats", active = (dashboardTab == "chats"), onClick = { dashboardTab = "chats" })
+                        TabPill(text = "👥 Groups", active = (dashboardTab == "groups"), onClick = { dashboardTab = "groups" })
+                        
+                        Spacer(modifier = Modifier.weight(1f))
+                        
+                        IconButton(
+                            onClick = {
+                                groupToEdit = null
+                                showGroupCustomizerDialog = true
+                            },
+                            modifier = Modifier.size(32.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Add,
+                                contentDescription = "Create Group",
+                                tint = MaterialTheme.colorScheme.primary
+                            )
+                        }
+                    }
+                }
+
                 if (isSearchActive) {
                     OutlinedTextField(
                         value = searchField,
@@ -960,45 +1005,180 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         }
                     }
                 } else {
-                    // Recent chats list (No active search query)
-                    if (recentChats.isEmpty()) {
-                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Icon(Icons.Filled.ChatBubble, null, modifier = Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text("কোনো চলমান বার্তা নেই!", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                    val lastActiveTimestamps by viewModel.lastActiveTimestamps.collectAsState()
+                    val recentsAndGroups = (recentChats + myGroups).distinctBy { it.email }
+                    val top4RecentEmails = remember(recentsAndGroups, lastActiveTimestamps) {
+                        recentsAndGroups
+                            .sortedByDescending { lastActiveTimestamps[it.email] ?: 0L }
+                            .take(4)
+                            .map { it.email }
+                            .toSet()
+                    }
+
+                    if (dashboardTab == "all") {
+                        val combinedList = recentsAndGroups
+                            .sortedWith(
+                                compareByDescending<User> { u ->
+                                    (unreadCounts[u.email] ?: 0) > 0
+                                }.thenByDescending { u ->
+                                    lastActiveTimestamps[u.email] ?: 0L
+                                }
+                            )
+                        if (combinedList.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(Icons.Filled.ChatBubble, null, modifier = Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("কোনো কথোপকথন পাওয়া যায়নি!", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                                }
+                            }
+                        } else {
+                            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                items(combinedList) { conversation ->
+                                    val unread = unreadCounts[conversation.email] ?: 0
+                                    val isGrp = conversation.email.startsWith("group_")
+                                    val isUprooted = top4RecentEmails.contains(conversation.email)
+                                    
+                                    val groupMembersEmails = if (isGrp) (groupMembers[conversation.email] ?: emptyList()) else emptyList()
+                                    val groupMembersList = groupMembersEmails.map { email ->
+                                        allActiveUsers.find { it.email.lowercase() == email.lowercase() } ?: User(email = email, name = email.split("@")[0], photoUrl = "")
+                                    }
+
+                                    UserItemRow(
+                                        user = conversation,
+                                        unreadCount = unread,
+                                        isUprooted = isUprooted,
+                                        isSecured = if (isGrp) false else securedChats.containsKey(conversation.email),
+                                        verifiedColor = if (isGrp) null else premiumVerifiedColors[conversation.email],
+                                        groupMembersList = groupMembersList,
+                                        isNewUser = false,
+                                        onSelect = {
+                                            if (isGrp) {
+                                                viewModel.selectChatUser(conversation)
+                                            } else {
+                                                val lockPass = securedChats[conversation.email]
+                                                if (lockPass != null) {
+                                                    lockPromptEmail = conversation.email
+                                                    lockPromptPassword = ""
+                                                    lockPromptError = false
+                                                } else {
+                                                    viewModel.selectChatUser(conversation)
+                                                }
+                                            }
+                                        },
+                                        onLongClick = {
+                                            if (isGrp) {
+                                                groupToEdit = conversation
+                                                showGroupCustomizerDialog = true
+                                            } else {
+                                                activeLongClickUser = conversation
+                                                showActionDialog = true
+                                            }
+                                        }
+                                    )
+                                }
+                            }
+                        }
+                    } else if (dashboardTab == "groups") {
+                        val sortedGroups = myGroups.sortedWith(
+                            compareByDescending<User> { g ->
+                                (unreadCounts[g.email] ?: 0) > 0
+                            }.thenByDescending { g ->
+                                lastActiveTimestamps[g.email] ?: 0L
+                            }
+                        )
+                        if (sortedGroups.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(Icons.Filled.Group, null, modifier = Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("কোনো গ্রুপ চ্যাট নেই!", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Button(onClick = { showGroupCustomizerDialog = true }) {
+                                        Text("গ্রুপ তৈরি করুন")
+                                    }
+                                }
+                            }
+                        } else {
+                            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                items(sortedGroups) { group ->
+                                    val unread = unreadCounts[group.email] ?: 0
+                                    val groupMembersEmails = groupMembers[group.email] ?: emptyList()
+                                    val groupMembersList = groupMembersEmails.map { email ->
+                                        allActiveUsers.find { it.email.lowercase() == email.lowercase() } ?: User(email = email, name = email.split("@")[0], photoUrl = "")
+                                    }
+
+                                    UserItemRow(
+                                        user = group,
+                                        unreadCount = unread,
+                                        isSecured = false,
+                                        verifiedColor = null,
+                                        groupMembersList = groupMembersList,
+                                        isUprooted = top4RecentEmails.contains(group.email),
+                                        onSelect = {
+                                            viewModel.selectChatUser(group)
+                                        },
+                                        onLongClick = {
+                                            groupToEdit = group
+                                            showGroupCustomizerDialog = true
+                                        }
+                                    )
+                                }
                             }
                         }
                     } else {
-                        LazyColumn(modifier = Modifier.fillMaxSize()) {
-                            items(recentChats) { user ->
-                                val unread = unreadCounts[user.email] ?: 0
-                                UserItemRow(
-                                    user = user,
-                                    unreadCount = unread,
-                                    isSecured = securedChats.containsKey(user.email),
-                                    verifiedColor = premiumVerifiedColors[user.email],
-                                    onSelect = {
-                                        val lockPass = securedChats[user.email]
-                                        if (lockPass != null) {
-                                            lockPromptEmail = user.email
-                                            lockPromptPassword = ""
-                                            lockPromptError = false
-                                        } else {
-                                            viewModel.selectChatUser(user)
+                        // Recent chats list with smart highlighted sorting
+                        val sortedRecents = recentChats
+                            .sortedWith(
+                                compareByDescending<User> { u ->
+                                    (unreadCounts[u.email] ?: 0) > 0
+                                }.thenByDescending { u ->
+                                    lastActiveTimestamps[u.email] ?: 0L
+                                }
+                            )
+                        if (sortedRecents.isEmpty()) {
+                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                    Icon(Icons.Filled.ChatBubble, null, modifier = Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Text("কোনো চলমান বার্তা নেই!", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                                }
+                            }
+                        } else {
+                            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                items(sortedRecents) { user ->
+                                    val unread = unreadCounts[user.email] ?: 0
+                                    UserItemRow(
+                                        user = user,
+                                        unreadCount = unread,
+                                        isSecured = securedChats.containsKey(user.email),
+                                        verifiedColor = premiumVerifiedColors[user.email],
+                                        isNewUser = false,
+                                        isUprooted = top4RecentEmails.contains(user.email),
+                                        onSelect = {
+                                            val lockPass = securedChats[user.email]
+                                            if (lockPass != null) {
+                                                lockPromptEmail = user.email
+                                                lockPromptPassword = ""
+                                                lockPromptError = false
+                                            } else {
+                                                viewModel.selectChatUser(user)
+                                            }
+                                        },
+                                        onLongClick = {
+                                            activeLongClickUser = user
+                                            showActionDialog = true
                                         }
-                                    },
-                                    onLongClick = {
-                                        activeLongClickUser = user
-                                        showActionDialog = true
-                                    }
-                                )
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
         }
+    }
+
     }
 
     // Lock password prompt
@@ -1230,6 +1410,125 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
             showPremiumModal = false
         }
     }
+
+    if (showGroupCustomizerDialog) {
+        var groupName by remember { mutableStateOf(groupToEdit?.name ?: "") }
+        var groupPhotoUrl by remember { mutableStateOf(groupToEdit?.photoUrl ?: "") }
+        val selectedMembers = remember { mutableStateListOf<String>() }
+
+        AlertDialog(
+            onDismissRequest = { showGroupCustomizerDialog = false; groupToEdit = null },
+            title = { Text(if (groupToEdit != null) "👥 গ্রুপ সংশোধন করুন" else "👥 নতুন গ্রুপ তৈরি করুন", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    OutlinedTextField(
+                        value = groupName,
+                        onValueChange = { groupName = it },
+                        label = { Text("গ্রুপের নাম") },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    OutlinedTextField(
+                        value = groupPhotoUrl,
+                        onValueChange = { groupPhotoUrl = it },
+                        label = { Text("গ্রুপ প্রোফাইল ছবি ইউআরএল") },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        shape = RoundedCornerShape(12.dp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("গ্রুপের ছবির ডেমো নির্বাচন করুনঃ", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.secondary)
+                    
+                    val demoAvatars = listOf(
+                        "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=150&q=80" to "টিম",
+                        "https://images.unsplash.com/photo-1517486808906-6ca8b3f04846?auto=format&fit=crop&w=150&q=80" to "আড্ডা",
+                        "https://images.unsplash.com/photo-1511671782779-c97d3d27a1d4?auto=format&fit=crop&w=150&q=80" to "মিউজিক",
+                        "https://images.unsplash.com/photo-1543269865-cbf427effbad?auto=format&fit=crop&w=150&q=80" to "ক্লাস"
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        demoAvatars.forEach { (url, label) ->
+                            Box(
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (groupPhotoUrl == url) MaterialTheme.colorScheme.primaryContainer else Color.LightGray.copy(alpha = 0.2f))
+                                    .clickable { groupPhotoUrl = url }
+                                    .padding(4.dp),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text(label, fontSize = 10.sp, fontWeight = FontWeight.Bold, color = if (groupPhotoUrl == url) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface)
+                            }
+                        }
+                    }
+                    
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text("গ্রুপে সদস্য যোগ করুনঃ", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    LazyColumn(modifier = Modifier.weight(1f, fill = false).heightIn(max = 200.dp)) {
+                        items(allActiveUsers) { u ->
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable {
+                                        if (selectedMembers.contains(u.email)) {
+                                            selectedMembers.remove(u.email)
+                                        } else {
+                                            selectedMembers.add(u.email)
+                                        }
+                                    }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = selectedMembers.contains(u.email),
+                                    onCheckedChange = { checked ->
+                                        if (checked == true) {
+                                            selectedMembers.add(u.email)
+                                        } else {
+                                            selectedMembers.remove(u.email)
+                                        }
+                                    }
+                                )
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text(u.name, fontSize = 12.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (groupName.isNotEmpty()) {
+                            viewModel.createOrUpdateGroup(
+                                groupId = groupToEdit?.email,
+                                name = groupName,
+                                photoUrl = groupPhotoUrl.ifEmpty { "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=150&q=80" },
+                                members = selectedMembers.toList()
+                            ) { success ->
+                                if (success) {
+                                    showGroupCustomizerDialog = false
+                                    groupToEdit = null
+                                    Toast.makeText(context, "গ্রুপ সফলভাবে সম্পন্ন হয়েছে!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    Toast.makeText(context, "দুঃখিত, গ্রুপ তৈরিতে সমস্যা হয়েছে।", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                        }
+                    }
+                ) {
+                    Text("সম্পন্ন")
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showGroupCustomizerDialog = false; groupToEdit = null }) {
+                    Text("বাতিল")
+                }
+            }
+        )
+    }
 }
 
 @Composable
@@ -1390,13 +1689,21 @@ fun PremiumActivationDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit)
 
 @Composable
 fun getAnimatedAccentColor(): Color {
-    val infiniteTransition = rememberInfiniteTransition(label = "accent_color_transition")
+    val infiniteTransition = rememberInfiniteTransition(label = "new_accent_color_transition")
     val animatedColor by infiniteTransition.animateColor(
-        initialValue = Color(0xFF00FFCC), // Neon Aqua/Teal
-        targetValue = Color(0xFFFF007F),  // Electric Pink / Rose
+        initialValue = Color(0xFFFF5722), // Sunset Coral
+        targetValue = Color(0xFFFF5722),
         animationSpec = infiniteRepeatable(
-            animation = tween(2500, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
+            animation = keyframes {
+                durationMillis = 12000
+                Color(0xFFFF5722) at 0      // Sunset Coral
+                Color(0xFFE040FB) at 2400   // Neon Orchid
+                Color(0xFF00E676) at 4800   // Glow Mint
+                Color(0xFF00B0FF) at 7200   // Vivid Sky Blue
+                Color(0xFFFFEB3B) at 9600   // Warm Sun Yellow
+                Color(0xFFFF5722) at 12000  // Loop back
+            },
+            repeatMode = RepeatMode.Restart
         ),
         label = "global_animated_accent"
     )
@@ -1457,6 +1764,67 @@ fun parseVerifiedColor(colorStr: String?): Color {
     }
 }
 
+@Composable
+fun GroupMembersStack(members: List<User>, modifier: Modifier = Modifier) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy((-10).dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val displayMembers = members.take(6)
+        displayMembers.forEach { member ->
+            Box(
+                modifier = Modifier
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(CircleGradBrush)
+                    .border(1.5.dp, MaterialTheme.colorScheme.surface, CircleShape)
+            ) {
+                if (member.photoUrl.isNullOrEmpty()) {
+                    Box(
+                        modifier = Modifier.fillMaxSize(),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = member.name.take(1).uppercase(),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 8.sp
+                        )
+                    }
+                } else {
+                    SafeAvatarImage(
+                        model = member.photoUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        }
+        if (members.size > 6) {
+            val remainingCount = members.size - 6
+            val pluses = "+".repeat(remainingCount)
+            Box(
+                modifier = Modifier
+                    .height(24.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.secondaryContainer)
+                    .border(1.5.dp, MaterialTheme.colorScheme.surface, RoundedCornerShape(12.dp))
+                    .padding(horizontal = 6.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = pluses,
+                    color = MaterialTheme.colorScheme.onSecondaryContainer,
+                    fontSize = 8.sp,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        }
+    }
+}
+
 // Single User list Item layout
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -1466,18 +1834,64 @@ fun UserItemRow(
     isSecured: Boolean,
     verifiedColor: String? = null,
     onSelect: () -> Unit,
-    onLongClick: () -> Unit
+    onLongClick: () -> Unit,
+    groupMembersList: List<User> = emptyList(),
+    isNewUser: Boolean = false,
+    isUprooted: Boolean = false
 ) {
+    val rowBg = if (unreadCount > 0) {
+        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.18f)
+    } else if (isUprooted) {
+        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.12f)
+    } else if (isNewUser) {
+        MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.08f)
+    } else {
+        Color.Transparent
+    }
+
+    val shape = RoundedCornerShape(12.dp)
+    val borderModifier = if (unreadCount > 0) {
+        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape)
+    } else if (isUprooted) {
+        Modifier.border(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f), shape)
+    } else {
+        Modifier
+    }
+
     Row(
         modifier = Modifier
             .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 6.dp)
+            .then(borderModifier)
+            .clip(shape)
+            .background(rowBg)
             .combinedClickable(
                 onClick = onSelect,
                 onLongClick = onLongClick
             )
-            .padding(vertical = 12.dp, horizontal = 16.dp),
+            .padding(start = if (unreadCount > 0 || isNewUser) 12.dp else 16.dp, top = 12.dp, end = 16.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        if (unreadCount > 0) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.primary)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+        } else if (isNewUser) {
+            Box(
+                modifier = Modifier
+                    .width(4.dp)
+                    .height(36.dp)
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(MaterialTheme.colorScheme.tertiary)
+            )
+            Spacer(modifier = Modifier.width(12.dp))
+        }
+
         // User Photo
         Box(
             modifier = Modifier
@@ -1537,26 +1951,44 @@ fun UserItemRow(
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 if (isPremiumVerified) {
+                    val displayNameColor = if (unreadCount > 0) MaterialTheme.colorScheme.primary else parseVerifiedColor(finalVerifiedColor)
                     Text(
                         text = cleanName,
                         fontSize = 16.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = parseVerifiedColor(finalVerifiedColor),
+                        fontWeight = if (unreadCount > 0) FontWeight.ExtraBold else FontWeight.Bold,
+                        color = displayNameColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
                 } else {
-                    val staticColor = if (hasHighlight) Color(0xFFD4AF37) else MaterialTheme.colorScheme.onSurface
+                    val staticColor = if (unreadCount > 0) MaterialTheme.colorScheme.primary else (if (hasHighlight) Color(0xFFD4AF37) else MaterialTheme.colorScheme.onSurface)
                     Text(
                         text = cleanName,
                         fontSize = 16.sp,
-                        fontWeight = if (hasHighlight) FontWeight.Bold else FontWeight.SemiBold,
+                        fontWeight = if (unreadCount > 0) FontWeight.ExtraBold else (if (hasHighlight) FontWeight.Bold else FontWeight.SemiBold),
                         color = staticColor,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false)
                     )
+                }
+
+                if (isNewUser) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(MaterialTheme.colorScheme.tertiaryContainer)
+                            .padding(horizontal = 5.dp, vertical = 2.dp)
+                    ) {
+                        Text(
+                            text = "NEW USER",
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
                 }
 
                 if (isPremiumVerified) {
@@ -1611,6 +2043,13 @@ fun UserItemRow(
             }
         }
 
+        if (user.email.startsWith("group_") && groupMembersList.isNotEmpty()) {
+            GroupMembersStack(
+                members = groupMembersList,
+                modifier = Modifier.padding(end = 8.dp)
+            )
+        }
+
         if (isSecured) {
             Icon(
                 imageVector = Icons.Default.Lock,
@@ -1623,19 +2062,36 @@ fun UserItemRow(
         }
 
         if (unreadCount > 0) {
-            Box(
-                modifier = Modifier
-                    .size(22.dp)
-                    .clip(CircleShape)
-                    .background(Color.Red),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = if (unreadCount > 9) "9+" else unreadCount.toString(),
-                    color = Color.White,
-                    fontSize = 10.sp,
-                    fontWeight = FontWeight.Bold
-                )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .padding(horizontal = 4.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(MaterialTheme.colorScheme.primary)
+                        .padding(horizontal = 6.dp, vertical = 3.dp)
+                ) {
+                    Text(
+                        text = "✉️ SMS",
+                        color = MaterialTheme.colorScheme.onPrimary,
+                        fontSize = 9.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
+                Spacer(modifier = Modifier.width(4.dp))
+                Box(
+                    modifier = Modifier
+                        .size(22.dp)
+                        .clip(CircleShape)
+                        .background(Color.Red),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = if (unreadCount > 9) "9+" else unreadCount.toString(),
+                        color = Color.White,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold
+                    )
+                }
             }
         }
     }
@@ -1652,19 +2108,27 @@ private fun getSimulatedOnlineStatus(email: String): String {
 // ─────────────────────────────────────────────
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun ChatWindowScreen(viewModel: EchoChatViewModel) {
+fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit = {}) {
     val chatUser by viewModel.currentChatUser.collectAsState()
     val messages by viewModel.messages.collectAsState()
     val isSending by viewModel.isSending.collectAsState()
     val typingPartner by viewModel.typingPartnerName.collectAsState()
     val partnerOnline by viewModel.partnerOnlineStatus.collectAsState()
     val premiumVerifiedColors by viewModel.premiumVerifiedColors.collectAsState()
+    val chatSeenMap by viewModel.chatSeenMap.collectAsState()
+    val allActiveUsers by viewModel.allUsers.collectAsState()
+    val groupMembers by viewModel.groupMembers.collectAsState()
+    val groupCreators by viewModel.groupCreators.collectAsState()
+    val groupSubAdmins by viewModel.groupSubAdmins.collectAsState()
+    val currentUser by viewModel.currentUser.collectAsState()
 
     val chatWallpaper by viewModel.chatWallpaper.collectAsState()
     val perChatWallpapers by viewModel.perChatWallpaper.collectAsState()
     val perChatWallpaperVal = chatUser?.email?.let { perChatWallpapers[it] }
     val soundEnabled by viewModel.soundEnabled.collectAsState()
     val autoScrollLocked by viewModel.autoScrollLocked.collectAsState()
+    val currentPollVotes by viewModel.currentPollVotes.collectAsState()
+    val currentUserVotes by viewModel.currentUserVotes.collectAsState()
 
     val galleryLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent()
@@ -1690,6 +2154,8 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
     var showNoteDialog by remember { mutableStateOf(false) }
     var showStatsDialog by remember { mutableStateOf(false) }
     var showPollDialog by remember { mutableStateOf(false) }
+    var showPlusOptionsDialog by remember { mutableStateOf(false) }
+    var showGroupMembersDialog by remember { mutableStateOf(false) }
 
     // Custom wallpapers
     val wallpaperModifier = Modifier.drawWithContent {
@@ -1760,6 +2226,8 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
                         val isPremiumVerified = verifiedColor != null || chatUser?.name?.contains("(Verified)") == true
                         val finalVerifiedColor = verifiedColor ?: if (chatUser?.name?.contains("(Verified)") == true) "blue" else null
                         val cleanName = removeLinkFromName(chatUser?.name ?: "")
+                        val headerImageUrl = chatUser?.name?.let { extractLinkFromName(it) }
+                        val headerHasHighlight = chatUser?.name?.let { hasPhotoLink(it) } == true
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (isPremiumVerified) {
@@ -1778,17 +2246,42 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
                             } else {
                                 Text(
                                     text = cleanName,
-                                    style = MaterialTheme.typography.titleMedium,
+                                    style = MaterialTheme.typography.titleMedium.copy(color = if (headerHasHighlight) Color(0xFFD4AF37) else MaterialTheme.colorScheme.onSurface),
                                     fontWeight = FontWeight.Bold
+                                )
+                                if (headerHasHighlight) {
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Icon(
+                                        imageVector = Icons.Filled.Verified,
+                                        contentDescription = "Highlighted Group",
+                                        tint = Color(0xFFD4AF37),
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+                            if (!headerImageUrl.isNullOrEmpty()) {
+                                Spacer(modifier = Modifier.width(6.dp))
+                                AsyncImage(
+                                    model = headerImageUrl,
+                                    contentDescription = "Header Logo",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
+                                        .border(1.dp, Color(0xFFD4AF37), CircleShape)
                                 )
                             }
                         }
                         Text(
-                            text = (when (partnerOnline) {
-                                "online" -> "🟢 Online"
-                                "away" -> "🟡 Away"
-                                else -> "⚫ Offline"
-                            }) + if (!chatUser?.statusMessage.isNullOrEmpty()) " | \"${chatUser?.statusMessage}\"" else "",
+                            text = if (chatUser?.email?.startsWith("group_") == true) {
+                                "👥 Group ${chatUser?.statusMessage ?: ""}"
+                            } else {
+                                (when (partnerOnline) {
+                                    "online" -> "🟢 Online"
+                                    "away" -> "🟡 Away"
+                                    else -> "⚫ Offline"
+                                }) + if (!chatUser?.statusMessage.isNullOrEmpty()) " | \"${chatUser?.statusMessage}\"" else ""
+                            },
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                             maxLines = 1,
@@ -1829,6 +2322,18 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
                         expanded = isMenuExpanded,
                         onDismissRequest = { isMenuExpanded = false }
                     ) {
+                        if (chatUser?.email?.startsWith("group_") == true) {
+                            DropdownMenuItem(
+                                text = { Text("👥 Edit Group") },
+                                onClick = { isMenuExpanded = false; onEditGroup(chatUser!!) },
+                                leadingIcon = { Icon(Icons.Filled.Edit, null) }
+                            )
+                            DropdownMenuItem(
+                                text = { Text("👥 Group Members & Admins") },
+                                onClick = { isMenuExpanded = false; showGroupMembersDialog = true },
+                                leadingIcon = { Icon(Icons.Filled.Group, null) }
+                            )
+                        }
                         DropdownMenuItem(
                             text = { Text("📁 Chat Statistics") },
                             onClick = { isMenuExpanded = false; showStatsDialog = true },
@@ -1981,10 +2486,48 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
                 ) {
                     items(messages.size) { i ->
                         val msg = messages[i]
+                        val activeChatUser = chatUser
+                        val isGrp = activeChatUser?.email?.startsWith("group_") == true
+                        val senderVerifiedColor = premiumVerifiedColors[msg.senderEmail]
+
+                        // Calculate seenUsers:
+                        val potentialUsers = if (isGrp) {
+                            val memberEmails = activeChatUser?.email?.let { groupMembers[it] } ?: emptyList()
+                            memberEmails.filter { it != msg.senderEmail }
+                        } else {
+                            if (activeChatUser != null) {
+                                listOf(activeChatUser.email)
+                            } else {
+                                emptyList()
+                            }
+                        }
+
+                        val seenUsers = potentialUsers.mapNotNull { email ->
+                            val sanitized = sanitizeEmailForSeen(email)
+                            val seenTs = chatSeenMap[sanitized] ?: 0L
+                            if (seenTs >= msg.timestampMs) {
+                                val found = allActiveUsers.find { it.email == email }
+                                found ?: User(email = email, name = email.split("@")[0], photoUrl = "")
+                            } else {
+                                null
+                            }
+                        }
+
                         MessageBubble(
                             msg = msg,
                             searchQuery = chatSearchQuery,
                             partnerOnline = partnerOnline,
+                            isGroup = isGrp,
+                            senderVerifiedColor = senderVerifiedColor,
+                            seenUsers = seenUsers,
+                            votesMap = currentPollVotes[msg.id] ?: emptyMap(),
+                            currentUserVote = currentUserVotes[msg.id],
+                            onVote = { selectedOption ->
+                                viewModel.castVote(msg.id, selectedOption)
+                            },
+                            onViewPoll = {
+                                viewModel.fetchPollVotes()
+                            },
                             onCopy = {
                                 clipboardCopy(msg.text)
                             },
@@ -1992,7 +2535,7 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
                                 viewModel.deleteMessage(msg.id)
                             },
                             onView = {
-                                chatUser?.email?.let { otherMail ->
+                                activeChatUser?.email?.let { otherMail ->
                                     viewModel.viewAndDecryptMessage(otherMail, msg)
                                 }
                             }
@@ -2080,7 +2623,7 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
 
                 // Attach/Add Trigger for GPS and files
                 IconButton(onClick = {
-                    showPollDialog = true
+                    showPlusOptionsDialog = true
                 }) {
                     Icon(Icons.Filled.AddCircle, null, tint = MaterialTheme.colorScheme.primary)
                 }
@@ -2226,6 +2769,88 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
         )
     }
 
+    if (showPlusOptionsDialog) {
+        AlertDialog(
+            onDismissRequest = { showPlusOptionsDialog = false },
+            title = { Text("📎 Attachments & Options", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Option 1: Create Poll
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f))
+                            .clickable {
+                                showPlusOptionsDialog = false
+                                showPollDialog = true
+                            }
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.Poll, "Poll", tint = MaterialTheme.colorScheme.primary)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("📊 Create Poll (ভোট তৈরি করুন)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("গ্রুপে যেকোনো বিষয়ে পোল বা ভোট আয়োজন করুন", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+
+                    // Option 2: Share Location
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f))
+                            .clickable {
+                                showPlusOptionsDialog = false
+                                viewModel.sendMessage("📍 Location: 23.8103° N, 90.4125° E (Dhaka, Bangladesh)")
+                            }
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.LocationOn, "Location", tint = MaterialTheme.colorScheme.secondary)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("📍 Share Location (অবস্থান শেয়ার করুন)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("আপনার বর্তমান অবস্থান ম্যাপ লিংকের সাথে চ্যাটে পাঠান", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+
+                    // Option 3: Custom Wallpaper
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.4f))
+                            .clickable {
+                                showPlusOptionsDialog = false
+                                galleryLauncher.launch("image/*")
+                            }
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Icon(Icons.Filled.Image, "Wallpaper", tint = MaterialTheme.colorScheme.tertiary)
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column {
+                            Text("🖼️ Chat Wallpaper (চ্যাট ওয়ালপেপার)", fontWeight = FontWeight.Bold, fontSize = 14.sp)
+                            Text("চ্যাট উইন্ডোর জন্য কাস্টম ওয়ালপেপার সেট করুন", fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showPlusOptionsDialog = false }) {
+                    Text("বন্ধ করুন")
+                }
+            }
+        )
+    }
+
     if (showPollDialog) {
         var pollQ by remember { mutableStateOf("") }
         var opt1 by remember { mutableStateOf("") }
@@ -2251,6 +2876,210 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel) {
             }
         )
     }
+
+    if (showGroupMembersDialog && chatUser != null && chatUser!!.email.startsWith("group_")) {
+        val groupId = chatUser!!.email
+        val creatorEmail = groupCreators[groupId] ?: ""
+        val subAdminEmails = groupSubAdmins[groupId] ?: emptyList()
+        val memberEmails = groupMembers[groupId] ?: emptyList()
+        
+        val membersList = memberEmails.map { email ->
+            allActiveUsers.find { it.email.lowercase() == email.lowercase() } ?: User(email = email, name = email.split("@")[0], photoUrl = "")
+        }
+        
+        GroupMembersAndAdminsDialog(
+            groupId = groupId,
+            currentUserEmail = currentUser?.email ?: "",
+            creatorEmail = creatorEmail,
+            subAdminEmails = subAdminEmails,
+            membersList = membersList,
+            onToggleSubAdmin = { email ->
+                viewModel.toggleSubAdmin(groupId, email)
+            },
+            onMakeEveryoneSubAdmin = {
+                viewModel.makeEveryoneSubAdmin(groupId)
+            },
+            onDismiss = { showGroupMembersDialog = false }
+        )
+    }
+}
+
+@Composable
+fun GroupMembersAndAdminsDialog(
+    groupId: String,
+    currentUserEmail: String,
+    creatorEmail: String,
+    subAdminEmails: List<String>,
+    membersList: List<User>,
+    onToggleSubAdmin: (String) -> Unit,
+    onMakeEveryoneSubAdmin: () -> Unit,
+    onDismiss: () -> Unit
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Filled.Group,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(24.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "গ্রুপ মেম্বার এবং অ্যাডমিন",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold
+                )
+            }
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .heightIn(max = 360.dp)
+            ) {
+                // If current user is the main group admin, show "Make Everyone Sub-Admin" button
+                val isCurrentUserAdmin = currentUserEmail.lowercase() == creatorEmail.lowercase()
+                if (isCurrentUserAdmin) {
+                    Button(
+                        onClick = {
+                            onMakeEveryoneSubAdmin()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = MaterialTheme.colorScheme.secondary
+                        )
+                    ) {
+                        Icon(Icons.Filled.Stars, null, modifier = Modifier.size(16.dp))
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text("সবাইকে সাব-অ্যাডমিন করুন", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Divider(modifier = Modifier.padding(bottom = 8.dp))
+
+                LazyColumn(
+                    modifier = Modifier.weight(1f, fill = false),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    items(membersList) { member ->
+                        val isCreator = member.email.lowercase() == creatorEmail.lowercase()
+                        val isSubAdmin = subAdminEmails.any { it.lowercase() == member.email.lowercase() }
+                        
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
+                                .padding(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Avatar
+                            Box(
+                                modifier = Modifier
+                                    .size(36.dp)
+                                    .clip(CircleShape)
+                                    .background(CircleGradBrush)
+                            ) {
+                                if (member.photoUrl.isNullOrEmpty()) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = member.name.take(1).uppercase(),
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 14.sp
+                                        )
+                                    }
+                                } else {
+                                    SafeAvatarImage(
+                                        model = member.photoUrl,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            // Name & Badge
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = member.name,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (isCreator) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(Color(0xFFD4AF37))
+                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = "👑 অ্যাডমিন",
+                                                color = Color.Black,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.ExtraBold
+                                            )
+                                        }
+                                    } else if (isSubAdmin) {
+                                        Box(
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(4.dp))
+                                                .background(MaterialTheme.colorScheme.primary)
+                                                .padding(horizontal = 4.dp, vertical = 2.dp)
+                                        ) {
+                                            Text(
+                                                text = "⭐ সাব-অ্যাডমিন",
+                                                color = Color.White,
+                                                fontSize = 9.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    } else {
+                                        Text(
+                                            text = "মেম্বার",
+                                            fontSize = 10.sp,
+                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                        )
+                                    }
+                                }
+                            }
+
+                            // If current user is the main group admin and this is not themselves, allow promoting/demoting
+                            if (isCurrentUserAdmin && !isCreator) {
+                                IconButton(
+                                    onClick = { onToggleSubAdmin(member.email) },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isSubAdmin) Icons.Filled.RemoveCircleOutline else Icons.Filled.AddCircleOutline,
+                                        contentDescription = if (isSubAdmin) "Demote Sub-Admin" else "Promote Sub-Admin",
+                                        tint = if (isSubAdmin) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        confirmButton = {
+            TextButton(onClick = onDismiss) {
+                Text("বন্ধ করুন", fontWeight = FontWeight.Bold)
+            }
+        }
+    )
 }
 
 // Helper for translation lookups
@@ -2299,16 +3128,160 @@ fun getLocalTranslation(original: String): String {
     }
 }
 
+@Composable
+fun ClickableLinkText(
+    text: String,
+    textColor: Color,
+    fontWeight: FontWeight,
+    modifier: Modifier = Modifier,
+    fontSize: androidx.compose.ui.unit.TextUnit = androidx.compose.ui.unit.TextUnit.Unspecified,
+    fontStyle: FontStyle? = null
+) {
+    val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
+    val annotatedString = remember(text, textColor) {
+        androidx.compose.ui.text.buildAnnotatedString {
+            val urlPattern = java.util.regex.Pattern.compile(
+                "((?:https?://|www\\.)[^\\s]+)",
+                java.util.regex.Pattern.CASE_INSENSITIVE
+            )
+            val matcher = urlPattern.matcher(text)
+            var lastIndex = 0
+            while (matcher.find()) {
+                val start = matcher.start()
+                val end = matcher.end()
+                
+                // Append text before match
+                if (start > lastIndex) {
+                    append(text.substring(lastIndex, start))
+                }
+                
+                // Append highlighted link
+                val linkText = text.substring(start, end)
+                pushStringAnnotation(tag = "URL", annotation = linkText)
+                withStyle(
+                    style = androidx.compose.ui.text.SpanStyle(
+                        color = Color(0xFF38BDF8),
+                        textDecoration = androidx.compose.ui.text.style.TextDecoration.Underline,
+                        fontWeight = FontWeight.Bold
+                    )
+                ) {
+                    append(linkText)
+                }
+                pop()
+                lastIndex = end
+            }
+            if (lastIndex < text.length) {
+                append(text.substring(lastIndex))
+            }
+        }
+    }
+
+    androidx.compose.foundation.text.ClickableText(
+        text = annotatedString,
+        style = MaterialTheme.typography.bodyMedium.copy(
+            color = textColor,
+            fontWeight = fontWeight,
+            fontSize = fontSize,
+            fontStyle = fontStyle
+        ),
+        modifier = modifier,
+        onClick = { offset ->
+            annotatedString.getStringAnnotations(tag = "URL", start = offset, end = offset)
+                .firstOrNull()?.let { annotation ->
+                    try {
+                        var targetUrl = annotation.item
+                        if (targetUrl.lowercase().startsWith("www.")) {
+                            targetUrl = "https://" + targetUrl
+                        }
+                        uriHandler.openUri(targetUrl)
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+        }
+    )
+}
+
+private fun sanitizeEmailForSeen(email: String): String {
+    return email.lowercase().replace(Regex("[.#$\\[\\]]"), "_")
+}
+
+// Helper for displaying user avatars seen list
+@Composable
+fun SeenUsersRow(seenUsers: List<User>) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy((-5).dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        val displayUsers = seenUsers.take(6)
+        displayUsers.forEach { user ->
+            Box(
+                modifier = Modifier
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .background(Color.Gray)
+                    .border(1.dp, Color.White, CircleShape)
+            ) {
+                if (user.photoUrl.isNullOrEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(CircleGradBrush),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = user.name.take(1).uppercase(),
+                            color = Color.White,
+                            fontSize = 7.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                } else {
+                    SafeAvatarImage(
+                        model = user.photoUrl,
+                        contentDescription = null,
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier.fillMaxSize()
+                    )
+                }
+            }
+        }
+        if (seenUsers.size > 6) {
+            val remainingCount = seenUsers.size - 6
+            val pluses = "+".repeat(remainingCount)
+            Text(
+                text = pluses,
+                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                fontSize = 8.sp,
+                fontWeight = FontWeight.Bold,
+                modifier = Modifier.padding(start = 2.dp)
+            )
+        }
+    }
+}
+
 // Single message item bubble
 @Composable
 fun MessageBubble(
     msg: ChatMessage,
     searchQuery: String = "",
     partnerOnline: String = "offline",
+    isGroup: Boolean = false,
+    senderVerifiedColor: String? = null,
+    seenUsers: List<User> = emptyList(),
+    votesMap: Map<Int, Int> = emptyMap(),
+    currentUserVote: Int? = null,
+    onVote: (Int) -> Unit = {},
+    onViewPoll: () -> Unit = {},
     onCopy: () -> Unit = {},
     onDelete: () -> Unit = {},
     onView: () -> Unit = {}
 ) {
+    if (msg.text.startsWith("📊 POLL:")) {
+        LaunchedEffect(msg.id) {
+            onViewPoll()
+        }
+    }
     val align = if (msg.isOwn) Alignment.End else Alignment.Start
     val hasSearchMatch = searchQuery.isNotEmpty() && msg.text.lowercase().contains(searchQuery.lowercase())
     
@@ -2335,7 +3308,7 @@ fun MessageBubble(
         AlertDialog(
             onDismissRequest = { showDeleteConfirmDialog = false },
             title = { Text("বার্তা ডিলিট করুন", fontWeight = FontWeight.Bold) },
-            text = { Text("আপনি কি এই মেসেজটি গুগল শিট থেকে স্বয়ংক্রিয়ভাবে মুছে ফেলতে চান?\n\nএটি গুগল শিট (Google Sheet) ক্লাউড ডেটাবেস থেকে ডিলিট হয়ে যাবে কিন্তু লোকাল হোস্টে চিরস্থায়ীভাবে থেকে যাবে।") },
+            text = { Text("আপনি কি এই মেসেজটি ক্লাউড সার্ভার থেকে স্বয়ংক্রিয়ভাবে মুছে ফেলতে চান?\n\nএটি ক্লাউড সার্ভার (Cloud Server) ডেটাবেস থেকে ডিলিট হয়ে যাবে কিন্তু লোকাল হোস্টে চিরস্থায়ীভাবে থেকে যাবে।") },
             confirmButton = {
                 TextButton(
                     onClick = {
@@ -2355,6 +3328,54 @@ fun MessageBubble(
     }
 
     Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = align) {
+        // Group Sender ID Label & Verified badge
+        if (isGroup && !msg.isOwn) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(start = 12.dp, bottom = 2.dp)
+            ) {
+                val cleanSenderName = removeLinkAndLockFromName(msg.senderName)
+                val senderImageUrl = extractLinkFromName(msg.senderName)
+                val senderHasHighlight = hasPhotoLink(msg.senderName)
+
+                Text(
+                    text = cleanSenderName,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = if (senderHasHighlight) Color(0xFFD4AF37) else MaterialTheme.colorScheme.primary
+                )
+                if (senderVerifiedColor != null) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Filled.Verified,
+                        contentDescription = "Verified Sender",
+                        tint = parseVerifiedColor(senderVerifiedColor),
+                        modifier = Modifier.size(13.dp)
+                    )
+                } else if (senderHasHighlight) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Filled.Verified,
+                        contentDescription = "Highlighted Sender",
+                        tint = Color(0xFFD4AF37),
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+                if (!senderImageUrl.isNullOrEmpty()) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    AsyncImage(
+                        model = senderImageUrl,
+                        contentDescription = "Sender Logo",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .size(18.dp)
+                            .clip(CircleShape)
+                            .border(1.dp, Color(0xFFD4AF37), CircleShape)
+                    )
+                }
+            }
+        }
+
         Row(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = if (msg.isOwn) Arrangement.End else Arrangement.Start,
@@ -2403,65 +3424,129 @@ fun MessageBubble(
                     .weight(1f, fill = false)
             ) {
                 Column {
-                    if (msg.isUnviewedServerMessage) {
+                    if (msg.text.startsWith("📊 POLL:")) {
+                        val lines = msg.text.split("\n")
+                        val question = lines.getOrNull(0)?.replace("📊 POLL:", "")?.trim() ?: ""
+                        val options = lines.drop(1).map { it.trim() }.filter { it.isNotEmpty() }
+                        
                         Column(
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            modifier = Modifier.padding(vertical = 4.dp, horizontal = 4.dp)
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 4.dp)
                         ) {
                             Text(
-                                text = "🔒 নতুন অপঠিত ক্লাউড বার্তা",
-                                color = contentColor,
+                                text = "📊 $question",
+                                style = MaterialTheme.typography.titleMedium,
                                 fontWeight = FontWeight.Bold,
-                                fontSize = 14.sp
-                            )
-                            Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = "বার্তাটি সার্ভার থেকে ডিলিট হয়ে আপনার লোকাল ফোনে যুক্ত হবে।",
-                                color = contentColor.copy(alpha = 0.8f),
-                                fontSize = 11.sp,
-                                textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                color = contentColor
                             )
                             Spacer(modifier = Modifier.height(8.dp))
-                            Button(
-                                onClick = onView,
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary,
-                                    contentColor = Color.White
-                                ),
-                                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 4.dp),
-                                modifier = Modifier.height(36.dp)
-                            ) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Icon(Icons.Filled.Visibility, null, modifier = Modifier.size(16.dp))
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text("বার্তাটী দেখুন (View)", fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                            
+                            val totalVotes = votesMap.values.sum()
+                            
+                            options.forEachIndexed { index, option ->
+                                val votesForOption = votesMap[index] ?: 0
+                                val isMyVote = currentUserVote == index
+                                val percentage = if (totalVotes > 0) (votesForOption.toFloat() / totalVotes * 100).toInt() else 0
+                                
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(vertical = 4.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(
+                                            if (isMyVote) {
+                                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f)
+                                            } else {
+                                                contentColor.copy(alpha = 0.08f)
+                                            }
+                                        )
+                                        .border(
+                                            width = if (isMyVote) 2.dp else 1.dp,
+                                            color = if (isMyVote) MaterialTheme.colorScheme.primary else contentColor.copy(alpha = 0.2f),
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                        .clickable { onVote(index) }
+                                        .padding(12.dp)
+                                ) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween,
+                                        verticalAlignment = Alignment.CenterVertically
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            RadioButton(
+                                                selected = isMyVote,
+                                                onClick = { onVote(index) },
+                                                colors = RadioButtonDefaults.colors(
+                                                    selectedColor = if (msg.isOwn) Color.White else MaterialTheme.colorScheme.primary
+                                                )
+                                            )
+                                            Spacer(modifier = Modifier.width(4.dp))
+                                            Text(
+                                                text = option,
+                                                fontWeight = if (isMyVote) FontWeight.Bold else FontWeight.Medium,
+                                                color = contentColor,
+                                                fontSize = 13.sp
+                                            )
+                                        }
+                                        Text(
+                                            text = "$votesForOption ভোট ($percentage%)",
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = contentColor.copy(alpha = 0.8f)
+                                        )
+                                    }
                                 }
                             }
                         }
                     } else {
-                        Text(
+                        ClickableLinkText(
                             text = msg.text,
-                            color = contentColor,
+                            textColor = contentColor,
                             fontWeight = if (hasSearchMatch) FontWeight.Bold else FontWeight.Normal
                         )
 
-                        if (isTranslated) {
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Box(
+                        // Extracted image preview for link sharing
+                        val imageRegex = "(https?://[^\\s]+(?:\\.jpg|\\.png|\\.gif|\\.webp|\\.jpeg|\\?.*img|\\?.*image)[^\\s]*)".toRegex(RegexOption.IGNORE_CASE)
+                        val inlineImageUrl = msg.imageUrl ?: imageRegex.find(msg.text)?.value
+                        
+                        if (!inlineImageUrl.isNullOrEmpty()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Card(
+                                shape = RoundedCornerShape(10.dp),
+                                colors = CardDefaults.cardColors(containerColor = Color.Transparent),
                                 modifier = Modifier
                                     .fillMaxWidth()
-                                    .height(1.dp)
-                                    .background(contentColor.copy(alpha = 0.25f))
-                            )
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = getLocalTranslation(msg.text),
-                                color = contentColor.copy(alpha = 0.85f),
-                                fontSize = 13.sp,
-                                fontStyle = FontStyle.Italic,
-                                fontWeight = FontWeight.Medium
-                            )
+                                    .heightIn(max = 220.dp)
+                                    .clip(RoundedCornerShape(10.dp))
+                            ) {
+                                AsyncImage(
+                                    model = inlineImageUrl,
+                                    contentDescription = "Shared Image Link",
+                                    contentScale = ContentScale.Fit,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
                         }
+                    }
+
+                    if (isTranslated) {
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(1.dp)
+                                .background(contentColor.copy(alpha = 0.25f))
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        ClickableLinkText(
+                            text = getLocalTranslation(msg.text),
+                            textColor = contentColor.copy(alpha = 0.85f),
+                            fontSize = 13.sp,
+                            fontStyle = FontStyle.Italic,
+                            fontWeight = FontWeight.Medium
+                        )
                     }
                 }
             }
@@ -2539,6 +3624,26 @@ fun MessageBubble(
                     color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
                     fontWeight = FontWeight.Bold
                 )
+            }
+        }
+
+        // Overlapping seen avatars under/adjacent to message
+        if (seenUsers.isNotEmpty() && msg.isOwn) {
+            Spacer(modifier = Modifier.height(2.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = if (msg.isOwn) Arrangement.End else Arrangement.Start,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 12.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    text = "Seen",
+                    fontSize = 9.sp,
+                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
+                SeenUsersRow(seenUsers = seenUsers)
             }
         }
     }
@@ -2766,7 +3871,16 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
 
                 Spacer(modifier = Modifier.height(16.dp))
 
-                when (activeTab) {
+                AnimatedContent(
+                    targetState = activeTab,
+                    transitionSpec = {
+                        (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) + scaleIn(initialScale = 0.98f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow))).togetherWith(
+                            fadeOut(animationSpec = spring(stiffness = Spring.StiffnessMediumLow)) + scaleOut(targetScale = 0.98f, animationSpec = spring(stiffness = Spring.StiffnessMediumLow))
+                        )
+                    },
+                    label = "settings_tabs_fade"
+                ) { targetTab ->
+                    when (targetTab) {
                     "profile" -> {
                         Column(
                             modifier = Modifier
@@ -3327,6 +4441,7 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                             }
                         }
                     }
+                }
                 }
             }
         }

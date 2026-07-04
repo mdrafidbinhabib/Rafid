@@ -37,6 +37,16 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     private val _recentChats = MutableStateFlow<List<User>>(emptyList())
     val recentChats: StateFlow<List<User>> = _recentChats.asStateFlow()
 
+    // Groups & Voting States
+    private val _myGroups = MutableStateFlow<List<User>>(emptyList())
+    val myGroups: StateFlow<List<User>> = _myGroups.asStateFlow()
+
+    private val _currentPollVotes = MutableStateFlow<Map<String, Map<Int, Int>>>(emptyMap())
+    val currentPollVotes: StateFlow<Map<String, Map<Int, Int>>> = _currentPollVotes.asStateFlow()
+
+    private val _currentUserVotes = MutableStateFlow<Map<String, Int>>(emptyMap())
+    val currentUserVotes: StateFlow<Map<String, Int>> = _currentUserVotes.asStateFlow()
+
     private val _currentChatUser = MutableStateFlow<User?>(null)
     val currentChatUser: StateFlow<User?> = _currentChatUser.asStateFlow()
 
@@ -124,6 +134,22 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     private val _perChatWallpaper = MutableStateFlow<Map<String, String>>(emptyMap())
     val perChatWallpaper: StateFlow<Map<String, String>> = _perChatWallpaper.asStateFlow()
+
+    // Last talk timestamps and seen maps
+    private val _lastActiveTimestamps = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val lastActiveTimestamps: StateFlow<Map<String, Long>> = _lastActiveTimestamps.asStateFlow()
+
+    private val _chatSeenMap = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val chatSeenMap: StateFlow<Map<String, Long>> = _chatSeenMap.asStateFlow()
+
+    private val _groupMembers = MutableStateFlow<Map<String, List<String>>>(emptyMap())
+    val groupMembers: StateFlow<Map<String, List<String>>> = _groupMembers.asStateFlow()
+
+    private val _groupCreators = MutableStateFlow<Map<String, String>>(emptyMap())
+    val groupCreators: StateFlow<Map<String, String>> = _groupCreators.asStateFlow()
+
+    private val _groupSubAdmins = MutableStateFlow<Map<String, List<String>>>(emptyMap())
+    val groupSubAdmins: StateFlow<Map<String, List<String>>> = _groupSubAdmins.asStateFlow()
 
     private val deliveredMessageIds = mutableSetOf<String>().apply {
         try {
@@ -317,7 +343,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         // Setup initial demo state
         val mockContacts = getMockContactsList("Md. Rafid")
         _allUsers.value = mockContacts
-        _recentChats.value = mockContacts
+        _recentChats.value = emptyList()
         startSynchronization()
     }
 
@@ -674,6 +700,59 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     val timestampsMap = mutableMapOf<String, Long>()
                     val lastMsgsMap = mutableMapOf<String, String>()
 
+                    // Load conversations_last_activity from Firebase
+                    val remoteLastActivity = try {
+                        FirebaseRestClient.service.getValue("conversations_last_activity") as? Map<*, *>
+                    } catch (e: Exception) {
+                        null
+                    }
+                    val activityMap = mutableMapOf<String, Long>()
+                    val mySan = sanitizeId(current.email)
+                    remoteLastActivity?.forEach { (k, v) ->
+                        val chatKeyStr = k?.toString() ?: return@forEach
+                        val ts = (v as? Number)?.toLong() ?: 0L
+                        activityMap[chatKeyStr] = ts
+                        
+                        // If it's a mutual chat key: "user1_email_com__user2_email_com"
+                        if (chatKeyStr.contains("__")) {
+                            val parts = chatKeyStr.split("__")
+                            if (parts.size == 2) {
+                                if (parts[0] == mySan || parts[1] == mySan) {
+                                    val otherSan = if (parts[0] == mySan) parts[1] else parts[0]
+                                    // Find which active user corresponds to otherSan
+                                    val matchingUser = activeUsers.find { sanitizeId(it.email) == otherSan }
+                                    if (matchingUser != null) {
+                                        recentEmails.add(matchingUser.email)
+                                        val existingTs = timestampsMap[matchingUser.email] ?: 0L
+                                        if (ts > existingTs) {
+                                            timestampsMap[matchingUser.email] = ts
+                                        }
+                                        val existingActTs = activityMap[matchingUser.email] ?: 0L
+                                        if (ts > existingActTs) {
+                                            activityMap[matchingUser.email] = ts
+                                            activityMap[sanitizeId(matchingUser.email)] = ts
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // If it's a group ID or individual sanitized email
+                            val matchingUser = activeUsers.find { sanitizeId(it.email) == chatKeyStr }
+                            if (matchingUser != null) {
+                                val existingTs = timestampsMap[matchingUser.email] ?: 0L
+                                if (ts > existingTs) {
+                                    timestampsMap[matchingUser.email] = ts
+                                    recentEmails.add(matchingUser.email)
+                                }
+                                val existingActTs = activityMap[matchingUser.email] ?: 0L
+                                if (ts > existingActTs) {
+                                    activityMap[matchingUser.email] = ts
+                                    activityMap[sanitizeId(matchingUser.email)] = ts
+                                }
+                            }
+                        }
+                    }
+
                     rawMessages.forEach { msg ->
                         val parts = msg.getParticipantsList()
                         if (parts.size == 2 && parts.contains(current.email)) {
@@ -694,6 +773,19 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                         }
                     }
 
+                    // Merge raw message timestamps into activityMap
+                    timestampsMap.forEach { (email, ts) ->
+                        val currentTs = activityMap[email] ?: 0L
+                        if (ts > currentTs) {
+                            activityMap[email] = ts
+                        }
+                        val sanitizedEmail = sanitizeId(email)
+                        val currentSanitizedTs = activityMap[sanitizedEmail] ?: 0L
+                        if (ts > currentSanitizedTs) {
+                            activityMap[sanitizedEmail] = ts
+                        }
+                    }
+
                     // Map emails to real users
                     val mappedRecents = activeUsers.filter { u ->
                         recentEmails.contains(u.email) || lastMsgsMap.containsKey(u.email)
@@ -702,19 +794,62 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     }
 
                     _recentChats.value = mappedRecents
+
+                    // Load remote groups from Supabase key "groups"
+                    val parsedGroups = mutableListOf<User>()
+                    val groupMembers = mutableMapOf<String, List<String>>()
+                    val groupCreators = mutableMapOf<String, String>()
+                    val groupSubAdmins = mutableMapOf<String, List<String>>()
+                    try {
+                        val remoteGroups = SupabaseRestClient.service.getValue("groups") as? Map<*, *>
+                        remoteGroups?.forEach { (k, v) ->
+                            val gId = k?.toString() ?: return@forEach
+                            val gMap = v as? Map<*, *> ?: return@forEach
+                            val gName = gMap["name"] as? String ?: "Group Chat"
+                            val gPhoto = gMap["photoUrl"] as? String ?: ""
+                            val membersRaw = gMap["members"] as? String ?: ""
+                            val createdBy = gMap["createdBy"] as? String ?: ""
+                            val subAdminsRaw = gMap["subAdmins"] as? String ?: ""
+                            
+                            val membersList = membersRaw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                            val subAdminsList = subAdminsRaw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                            if (membersList.contains(current.email) || createdBy == current.email) {
+                                groupMembers[gId] = membersList
+                                groupCreators[gId] = createdBy
+                                groupSubAdmins[gId] = subAdminsList
+                                parsedGroups.add(
+                                    User(
+                                        email = gId,
+                                        name = gName,
+                                        photoUrl = gPhoto,
+                                        statusMessage = "Group • ${membersList.size} members"
+                                    )
+                                )
+                            }
+                        }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                    withContext(Dispatchers.Main) {
+                        _myGroups.value = parsedGroups
+                        _groupMembers.value = groupMembers
+                        _groupCreators.value = groupCreators
+                        _groupSubAdmins.value = groupSubAdmins
+                        _lastActiveTimestamps.value = activityMap
+                    }
                 } else {
                     if (_allUsers.value.isEmpty()) {
                         val mocks = getMockContactsList(current.name)
                         _allUsers.value = mocks
-                        _recentChats.value = mocks
                     }
+                    _recentChats.value = emptyList()
                 }
             } catch (e: Exception) {
                 if (_allUsers.value.isEmpty()) {
                     val mocks = getMockContactsList(current.name)
                     _allUsers.value = mocks
-                    _recentChats.value = mocks
                 }
+                _recentChats.value = emptyList()
             }
         }
     }
@@ -732,9 +867,28 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     return@launch
                 }
 
-                val chatKey = listOf(current.email, otherEmail).sorted().joinToString("__")
+                val isGroup = otherEmail.startsWith("group_")
+                val chatKey = if (isGroup) otherEmail else listOf(current.email, otherEmail).sorted().joinToString("__")
 
-                val chatKeySanitized = listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+                val chatKeySanitized = if (isGroup) otherEmail else listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+                
+                // Fetch seen read receipts for this conversation
+                val seenResult = try {
+                    FirebaseRestClient.service.getValue("seen/$chatKeySanitized") as? Map<*, *>
+                } catch (e: Exception) {
+                    null
+                }
+                val seenMap = mutableMapOf<String, Long>()
+                seenResult?.forEach { (k, v) ->
+                    val userSanitized = k?.toString() ?: return@forEach
+                    val vMap = v as? Map<*, *>
+                    val ts = (vMap?.get("ts") as? Number)?.toLong() ?: 0L
+                    seenMap[userSanitized] = ts
+                }
+                withContext(Dispatchers.Main) {
+                    _chatSeenMap.value = seenMap
+                }
+
                 val remoteWallpaper = try {
                     FirebaseRestClient.service.getValue("chat_wallpapers/$chatKeySanitized") as? String
                 } catch (e: Exception) {
@@ -778,10 +932,16 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     val isPoll = text.startsWith("📊 POLL:")
                     val isImage = text.endsWith(".jpg") || text.endsWith(".png") || text.endsWith(".gif") || text.endsWith(".webp") || text.contains(".jpg?") || text.contains(".png?")
 
+                    val friendlyName = if (sender.lowercase() == current.email.lowercase()) {
+                        current.name
+                    } else {
+                        _allUsers.value.find { it.email.lowercase() == sender.lowercase() }?.name ?: sender.split("@")[0]
+                    }
+
                     supabaseMessages.add(
                         ChatMessage(
                             id = id,
-                            senderName = sender.split("@")[0],
+                            senderName = friendlyName,
                             senderEmail = sender,
                             text = text,
                             timestampMs = timestamp,
@@ -804,15 +964,44 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     )
                 }
 
+                if (isGroup) {
+                    val groupMsgs = supabaseMessages.map { msg ->
+                        val correctIsOwn = msg.senderEmail.lowercase() == current.email.lowercase()
+                        msg.copy(isOwn = correctIsOwn)
+                    }.sortedBy { it.timestampMs }
+                    withContext(Dispatchers.Main) {
+                        _messages.value = groupMsgs
+                        _chatLoading.value = false
+                    }
+                    fetchPollVotes()
+                    markMessagesSeenForOther(otherEmail)
+                    return@launch
+                }
+
                 val cachedLocal = LocalStorage.getLocalMessages(context, chatKey)
                 val cachedIds = cachedLocal.map { it.id }.toSet()
 
                 // 2. Separate own messages and other person's messages on Supabase
                 val (ownMsgs, otherMsgs) = supabaseMessages.partition { it.isOwn }
 
-                // 3. Mark incoming messages that are NOT yet in cachedLocal as unviewed server messages
-                val unviewedIncoming = otherMsgs.filter { it.id !in cachedIds }.map {
-                    it.copy(isUnviewedServerMessage = true)
+                // 3. Automatically save any incoming messages that are NOT yet in cachedLocal and delete from Supabase
+                val unviewedIncoming = otherMsgs.filter { it.id !in cachedIds }
+                val updatedCachedLocal = if (unviewedIncoming.isNotEmpty()) {
+                    val updatedLocal = (cachedLocal + unviewedIncoming).distinctBy { it.id }.sortedBy { it.timestampMs }
+                    LocalStorage.saveLocalMessages(context, chatKey, updatedLocal)
+                    
+                    unviewedIncoming.forEach { msg ->
+                        viewModelScope.launch(Dispatchers.IO) {
+                            try {
+                                SupabaseRestClient.service.deleteValue("messages/$chatKey/${msg.id}")
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+                    updatedLocal
+                } else {
+                    cachedLocal
                 }
 
                 // Delete any incoming messages from Supabase that are ALREADY in cachedLocal (leak prevention)
@@ -826,7 +1015,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     }
                 }
 
-                // 4. Combine cached local messages, unviewed incoming messages, and pending own messages with delivery status calculations
+                // 4. Combine cached local messages and pending own messages with delivery status calculations
                 val ownIdsOnServer = ownMsgs.map { it.id }.toSet()
                 val partnerOnline = _partnerOnlineStatus.value
                 val partnerKey = sanitizeId(otherEmail)
@@ -838,16 +1027,18 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     0L
                 }
 
-                val finalMessages = (cachedLocal + unviewedIncoming + ownMsgs)
+                val finalMessages = (updatedCachedLocal + ownMsgs)
                     .distinctBy { it.id }
                     .map { msg ->
-                        if (msg.isOwn) {
-                            val isDelivered = msg.id in deliveredMessageIds || partnerOnline == "online"
-                            val status = if (msg.timestampMs <= partnerSeenTs) {
+                        val correctIsOwn = msg.senderEmail.lowercase() == current.email.lowercase()
+                        val updatedMsg = msg.copy(isOwn = correctIsOwn)
+                        if (correctIsOwn) {
+                            val isDelivered = updatedMsg.id in deliveredMessageIds || partnerOnline == "online"
+                            val status = if (updatedMsg.timestampMs <= partnerSeenTs) {
                                 "seen"
-                            } else if (msg.id in ownIdsOnServer) {
+                            } else if (updatedMsg.id in ownIdsOnServer) {
                                 if (isDelivered) {
-                                    saveDeliveredMessageId(msg.id)
+                                    saveDeliveredMessageId(updatedMsg.id)
                                     "delivered"
                                 } else {
                                     "sent"
@@ -855,9 +1046,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                             } else {
                                 "seen"
                             }
-                            msg.copy(deliveryStatus = status)
+                            updatedMsg.copy(deliveryStatus = status)
                         } else {
-                            msg
+                            updatedMsg
                         }
                     }
                     .sortedBy { it.timestampMs }
@@ -878,8 +1069,12 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             } catch (e: Exception) {
                 val chatKey = listOf(current.email, otherEmail).sorted().joinToString("__")
                 val cachedLocal = LocalStorage.getLocalMessages(context, chatKey)
+                val mappedCached = cachedLocal.map { msg ->
+                    val correctIsOwn = msg.senderEmail.lowercase() == current.email.lowercase()
+                    msg.copy(isOwn = correctIsOwn)
+                }
                 withContext(Dispatchers.Main) {
-                    _messages.value = cachedLocal.ifEmpty { getMockMessagesFor(current.email, otherEmail) }
+                    _messages.value = mappedCached.ifEmpty { getMockMessagesFor(current.email, otherEmail) }
                 }
             } finally {
                 _chatLoading.value = false
@@ -892,6 +1087,11 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         _currentChatUser.value = user
         _messages.value = emptyList()
         if (user != null) {
+            val currentRecents = _recentChats.value.toMutableList()
+            if (currentRecents.none { it.email.lowercase() == user.email.lowercase() }) {
+                currentRecents.add(0, user)
+                _recentChats.value = currentRecents
+            }
             _unreadCounts.value = _unreadCounts.value.toMutableMap().apply { remove(user.email) }
             LocalStorage.saveUnreadCounts(context, _unreadCounts.value)
             loadMessagesForConversation(user.email, isFirstLoad = true)
@@ -905,7 +1105,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     fun viewAndDecryptMessage(otherEmail: String, msg: ChatMessage) {
         val current = _currentUser.value ?: return
-        val chatKey = listOf(current.email, otherEmail).sorted().joinToString("__")
+        val isGroup = otherEmail.startsWith("group_")
+        val chatKey = if (isGroup) otherEmail else listOf(current.email, otherEmail).sorted().joinToString("__")
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 // 1. Copy the message with isUnviewedServerMessage = false
@@ -916,8 +1117,10 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 val updated = (currentCached + viewedMsg).distinctBy { it.id }.sortedBy { it.timestampMs }
                 LocalStorage.saveLocalMessages(context, chatKey, updated)
 
-                // 3. Delete it from Supabase (the server)
-                SupabaseRestClient.service.deleteValue("messages/$chatKey/${msg.id}")
+                if (!isGroup) {
+                    // 3. Delete it from Supabase (the server)
+                    SupabaseRestClient.service.deleteValue("messages/$chatKey/${msg.id}")
+                }
 
                 // 4. Reload the conversation
                 loadMessagesForConversation(otherEmail)
@@ -930,6 +1133,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     fun sendMessage(text: String, replyTo: ReplyToData? = null) {
         val current = _currentUser.value ?: return
         val chatUser = _currentChatUser.value ?: return
+        val isGroup = chatUser.email.startsWith("group_")
 
         // Instant prepending to make sure sent-to user is at the top of recentChats/dashboard
         val currentRecents = _recentChats.value.toMutableList()
@@ -937,21 +1141,26 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         currentRecents.add(0, chatUser)
         _recentChats.value = currentRecents
 
-        // Block if recipient name ends with '#'
-        if (chatUser.name.trim().endsWith("#")) {
-            _authError.value = "এই ব্যবহারকারীকে বার্তা পাঠানো সম্ভব নয় কারণ উনার নামের শেষে '#' রয়েছে।"
-            return
-        }
+        if (!isGroup) {
+            // Block if recipient name ends with '#'
+            if (chatUser.name.trim().endsWith("#")) {
+                _authError.value = "এই ব্যবহারকারীকে বার্তা পাঠানো সম্ভব নয় কারণ উনার নামের শেষে '#' রয়েছে।"
+                return
+            }
 
-        if (_deletedConversations.value.contains(chatUser.email)) {
-            restoreConversation(chatUser.email)
+            if (_deletedConversations.value.contains(chatUser.email)) {
+                restoreConversation(chatUser.email)
+            }
         }
 
         _isSending.value = true
 
+        val updatedMap = _lastActiveTimestamps.value.toMutableMap()
+        updatedMap[chatUser.email] = System.currentTimeMillis()
+        _lastActiveTimestamps.value = updatedMap
+
         viewModelScope.launch(Dispatchers.IO) {
-            val participants = listOf(current.email, chatUser.email).sorted()
-            val chatKey = participants.joinToString("__")
+            val chatKey = if (isGroup) chatUser.email else listOf(current.email, chatUser.email).sorted().joinToString("__")
 
             val msgId = "msg_" + System.currentTimeMillis() + "_" + (1000..9999).random()
 
@@ -992,6 +1201,16 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     "replyTo" to replyTo?.let { mapOf("id" to it.id, "text" to it.text, "user" to it.user) }
                 )
                 SupabaseRestClient.service.setValue("messages/$chatKey/$msgId", msgMap)
+
+                // Set last active timestamp on Firebase
+                val sanitizedChatId = sanitizeId(chatUser.email)
+                try {
+                    FirebaseRestClient.service.setValue("conversations_last_activity/$sanitizedChatId", System.currentTimeMillis())
+                    if (!isGroup) {
+                        val mutualChatKey = listOf(current.email, chatUser.email).sorted().map(::sanitizeId).joinToString("__")
+                        FirebaseRestClient.service.setValue("conversations_last_activity/$mutualChatKey", System.currentTimeMillis())
+                    }
+                } catch(e: Exception) {}
 
                 // Reload
                 loadMessagesForConversation(chatUser.email)
@@ -1186,15 +1405,20 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     fun deleteMessage(msgId: String) {
         val current = _currentUser.value ?: return
         val chatUser = _currentChatUser.value ?: return
+        val isGroup = chatUser.email.startsWith("group_")
 
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // Automatically delete from Google Sheet
-                RetrofitClient.echoChatApi.deleteMessage(
-                    url = scriptUrl,
-                    id = msgId,
-                    sender = current.email
-                )
+                if (isGroup) {
+                    SupabaseRestClient.service.deleteValue("messages/${chatUser.email}/$msgId")
+                } else {
+                    // Automatically delete from Google Sheet
+                    RetrofitClient.echoChatApi.deleteMessage(
+                        url = scriptUrl,
+                        id = msgId,
+                        sender = current.email
+                    )
+                }
             } catch (e: Exception) {
                 e.printStackTrace()
             }
@@ -1791,7 +2015,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             "userId" to user.email,
             "deviceModel" to android.os.Build.MODEL,
             "os" to "Android " + android.os.Build.VERSION.RELEASE,
-            "browser" to "Echo Chat App",
+            "browser" to "Echo Chat",
             "deviceType" to "📱 Mobile",
             "loginAt" to System.currentTimeMillis(),
             "lastActive" to System.currentTimeMillis(),
@@ -1895,12 +2119,165 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
         lastSeenSyncTime[otherEmail] = now
 
-        val chatKey = listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+        val isGroup = otherEmail.startsWith("group_")
+        val chatKey = if (isGroup) otherEmail else listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
         val userKey = sanitizeId(current.email)
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 FirebaseRestClient.service.setValue("seen/$chatKey/$userKey", mapOf("ts" to System.currentTimeMillis()))
             } catch (e: Exception) {}
+        }
+    }
+
+    fun createOrUpdateGroup(groupId: String?, name: String, photoUrl: String, members: List<String>, onComplete: (Boolean) -> Unit) {
+        val current = _currentUser.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val finalGroupId = groupId ?: ("group_" + System.currentTimeMillis() + "_" + (1000..9999).random())
+                var subAdminsStr = ""
+                var creator = current.email
+                
+                // If editing, try to preserve creator and subAdmins
+                if (groupId != null) {
+                    try {
+                        val remoteGroups = SupabaseRestClient.service.getValue("groups") as? Map<*, *>
+                        val gMap = remoteGroups?.get(groupId) as? Map<*, *>
+                        if (gMap != null) {
+                            subAdminsStr = gMap["subAdmins"] as? String ?: ""
+                            creator = gMap["createdBy"] as? String ?: current.email
+                        }
+                    } catch (ex: Exception) {}
+                }
+
+                val membersStr = (members + current.email).distinct().joinToString(",")
+                val groupMap = mapOf(
+                    "id" to finalGroupId,
+                    "name" to name,
+                    "photoUrl" to photoUrl,
+                    "members" to membersStr,
+                    "createdBy" to creator,
+                    "subAdmins" to subAdminsStr
+                )
+                SupabaseRestClient.service.setValue("groups/$finalGroupId", groupMap)
+                
+                // Reload conversations to reflect changes immediately
+                loadAllConversationsAndUsers()
+                
+                withContext(Dispatchers.Main) {
+                    onComplete(true)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    onComplete(false)
+                }
+            }
+        }
+    }
+
+    fun toggleSubAdmin(groupId: String, userEmail: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val remoteGroups = SupabaseRestClient.service.getValue("groups") as? Map<*, *> ?: return@launch
+                val gMap = remoteGroups[groupId] as? Map<*, *> ?: return@launch
+                val subAdminsRaw = gMap["subAdmins"] as? String ?: ""
+                var subAdminsList = subAdminsRaw.split(",").map { it.trim() }.filter { it.isNotEmpty() }.toMutableList()
+                
+                if (subAdminsList.contains(userEmail)) {
+                    subAdminsList.remove(userEmail)
+                } else {
+                    subAdminsList.add(userEmail)
+                }
+                
+                val updatedGroupMap = gMap.toMutableMap().apply {
+                    put("subAdmins", subAdminsList.joinToString(","))
+                }
+                SupabaseRestClient.service.setValue("groups/$groupId", updatedGroupMap)
+                loadAllConversationsAndUsers() // Refresh
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun makeEveryoneSubAdmin(groupId: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val remoteGroups = SupabaseRestClient.service.getValue("groups") as? Map<*, *> ?: return@launch
+                val gMap = remoteGroups[groupId] as? Map<*, *> ?: return@launch
+                val membersRaw = gMap["members"] as? String ?: ""
+                val createdBy = gMap["createdBy"] as? String ?: ""
+                
+                val membersList = membersRaw.split(",").map { it.trim() }.filter { it.isNotEmpty() }
+                // Sub-admins should be all members except the main creator
+                val subAdminsList = membersList.filter { it != createdBy }
+                
+                val updatedGroupMap = gMap.toMutableMap().apply {
+                    put("subAdmins", subAdminsList.joinToString(","))
+                }
+                SupabaseRestClient.service.setValue("groups/$groupId", updatedGroupMap)
+                loadAllConversationsAndUsers() // Refresh
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun castVote(pollMessageId: String, optionIndex: Int) {
+        val current = _currentUser.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val userKey = sanitizeId(current.email)
+                // Save vote: polls/pollId/votes/userKey = optionIndex
+                SupabaseRestClient.service.setValue("polls/$pollMessageId/votes/$userKey", optionIndex)
+                // Reload active messages to show results instantly
+                _currentChatUser.value?.let { loadMessagesForConversation(it.email) }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun fetchPollVotes() {
+        val current = _currentUser.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val remotePolls = SupabaseRestClient.service.getValue("polls") as? Map<*, *>
+                val parsedPollVotes = mutableMapOf<String, Map<Int, Int>>() // pollId -> optionIndex -> count
+                val parsedUserVotes = mutableMapOf<String, Int>() // pollId -> optionIndex chosen by me
+                
+                remotePolls?.forEach { (pollKey, pollVal) ->
+                    val pollId = pollKey?.toString() ?: return@forEach
+                    val pollValData = pollVal as? Map<*, *> ?: return@forEach
+                    val votesData = pollValData["votes"] as? Map<*, *> ?: return@forEach
+                    
+                    val optionCounts = mutableMapOf<Int, Int>()
+                    var chosenIndex: Int? = null
+                    
+                    votesData.forEach { (userKey, optVal) ->
+                        val optIndex = (optVal as? Number)?.toInt() ?: return@forEach
+                        val userKeyStr = userKey?.toString() ?: return@forEach
+                        
+                        optionCounts[optIndex] = (optionCounts[optIndex] ?: 0) + 1
+                        
+                        if (userKeyStr == sanitizeId(current.email)) {
+                            chosenIndex = optIndex
+                        }
+                    }
+                    
+                    parsedPollVotes[pollId] = optionCounts
+                    chosenIndex?.let {
+                        parsedUserVotes[pollId] = it
+                    }
+                }
+                
+                withContext(Dispatchers.Main) {
+                    _currentPollVotes.value = parsedPollVotes
+                    _currentUserVotes.value = parsedUserVotes
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
         }
     }
 
