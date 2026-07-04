@@ -303,27 +303,30 @@ fun AuthScreen(viewModel: EchoChatViewModel) {
                     modifier = Modifier.padding(bottom = 12.dp)
                 )
 
-                // Eco.AI Support Message
+                // Premium Secured Message Banner
                 Card(
                     colors = CardDefaults.cardColors(
-                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.3f)
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
                     ),
                     shape = RoundedCornerShape(16.dp),
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 12.dp)
+                        .padding(bottom = 16.dp)
                 ) {
-                    Column(modifier = Modifier.padding(12.dp)) {
+                    Column(
+                        modifier = Modifier.padding(14.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Filled.Android,
-                                contentDescription = "Eco.AI Logo",
+                                imageVector = Icons.Filled.Lock,
+                                contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(20.dp)
+                                modifier = Modifier.size(18.dp)
                             )
                             Spacer(modifier = Modifier.width(8.dp))
                             Text(
-                                text = "Eco.AI Assistant",
+                                text = "ক্লাউড-সুরক্ষিত চ্যাট স্পেস",
                                 fontWeight = FontWeight.Bold,
                                 fontSize = 14.sp,
                                 color = MaterialTheme.colorScheme.primary
@@ -331,14 +334,13 @@ fun AuthScreen(viewModel: EchoChatViewModel) {
                         }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Please log in to your account. This user can be sent to Apple.",
+                            text = "আপনার অ্যাকাউন্ট ব্যবহার করে নিরাপদে লগইন করুন",
                             fontSize = 12.sp,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            textAlign = TextAlign.Center
                         )
                     }
                 }
-
-
 
                 if (authError != null) {
                     Text(
@@ -410,31 +412,20 @@ fun AuthScreen(viewModel: EchoChatViewModel) {
                             }
                         }
 
-
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 16.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween
+                            horizontalArrangement = Arrangement.Center
                         ) {
                             Text(
-                                text = "🔐 পাসওয়ার্ড রিসেট",
-                                color = Color(0xFFF59E0B),
-                                fontSize = 14.sp,
-                                modifier = Modifier
-                                    .clickable {
-                                        screenMode = "forgot"
-                                        forgotStep = 1
-                                    }
-                                    .padding(4.dp)
-                            )
-                            Text(
-                                text = "হিসাব খুলুন (Register)",
+                                text = "নতুন অ্যাকাউন্ট খুলুন (Register)",
                                 color = MaterialTheme.colorScheme.primary,
                                 fontSize = 14.sp,
                                 modifier = Modifier
                                     .clickable { screenMode = "register" }
-                                    .padding(4.dp)
+                                    .padding(4.dp),
+                                fontWeight = FontWeight.Medium
                             )
                         }
                     }
@@ -537,116 +528,6 @@ fun AuthScreen(viewModel: EchoChatViewModel) {
                             fontSize = 14.sp,
                             modifier = Modifier
                                 .padding(top = 16.dp)
-                                .clickable { screenMode = "login" }
-                        )
-                    }
-
-                    "forgot" -> {
-                        Text(
-                            text = "🔐 Reset Password",
-                            fontSize = 20.sp,
-                            fontWeight = FontWeight.Bold,
-                            modifier = Modifier.padding(bottom = 16.dp)
-                        )
-
-                        when (forgotStep) {
-                            1 -> {
-                                OutlinedTextField(
-                                    value = forgotEmail,
-                                    onValueChange = { forgotEmail = it },
-                                    label = { Text("Your User ID/Email") },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Button(
-                                    onClick = {
-                                        viewModel.requestForgotPasswordCode(
-                                            email = forgotEmail,
-                                            onSuccess = { forgotStep = 2 },
-                                            onError = { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
-                                        )
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("পার্টনারের ফোনে কোড পাঠান", fontWeight = FontWeight.Bold)
-                                }
-                            }
-                            2 -> {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    colors = CardDefaults.cardColors(containerColor = Color(0x3310B981))
-                                ) {
-                                    Column(modifier = Modifier.padding(12.dp)) {
-                                        Text(
-                                            text = "📱 আপনার paired অংশীদারের Echo Chat অ্যাপে একটি ৫-ডিজিটের কোড পাঠানো হয়েছে।",
-                                            fontSize = 13.sp,
-                                            color = MaterialTheme.colorScheme.onSurface
-                                        )
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = "⏰ কোডের মেয়াদঃ ${timerSecs}s",
-                                            fontWeight = FontWeight.Bold,
-                                            color = Color.Red,
-                                            fontSize = 13.sp
-                                        )
-                                    }
-                                }
-                                Spacer(modifier = Modifier.height(12.dp))
-                                OutlinedTextField(
-                                    value = forgotCode,
-                                    onValueChange = { forgotCode = it },
-                                    label = { Text("৫-ডিজিট কোড লিখুন") },
-                                    keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Button(
-                                    onClick = {
-                                        viewModel.verifyForgotPasswordCode(
-                                            email = forgotEmail,
-                                            code = forgotCode,
-                                            onSuccess = { forgotStep = 3 },
-                                            onError = { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
-                                        )
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("পার্টনার কোড ভেরিফাই করুণ", fontWeight = FontWeight.Bold)
-                                }
-                            }
-                            3 -> {
-                                OutlinedTextField(
-                                    value = forgotNewPass,
-                                    onValueChange = { forgotNewPass = it },
-                                    label = { Text("নতুন পাসওয়ার্ড (New Secret Key)") },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Button(
-                                    onClick = {
-                                        viewModel.resetPassword(
-                                            email = forgotEmail,
-                                            newPass = forgotNewPass,
-                                            onSuccess = {
-                                                Toast.makeText(context, "পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে!", Toast.LENGTH_LONG).show()
-                                                screenMode = "login"
-                                            },
-                                            onError = { Toast.makeText(context, it, Toast.LENGTH_LONG).show() }
-                                        )
-                                    },
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Text("নতুন পাসওয়ার্ড সেট করুণ", fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        }
-
-                        Text(
-                            text = "← Back to Login",
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 14.sp,
-                            modifier = Modifier
-                                .padding(top = 18.dp)
                                 .clickable { screenMode = "login" }
                         )
                     }
@@ -922,11 +803,11 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                     } else {
                         val filteredUsers = if (searchField.isNotEmpty()) {
                             allActiveUsers.filter { u ->
-                                u.name.lowercase().contains(searchField.lowercase()) ||
-                                        u.email.lowercase().contains(searchField.lowercase())
+                                (!securedChats.containsKey(u.email) && (u.name.lowercase().contains(searchField.lowercase()) || u.email.lowercase().contains(searchField.lowercase()))) ||
+                                (securedChats[u.email] != null && securedChats[u.email] == searchField)
                             }.distinctBy { it.email }
                         } else {
-                            allActiveUsers.shuffled()
+                            allActiveUsers.filter { u -> !securedChats.containsKey(u.email) }.shuffled()
                         }
 
                         if (searchField.isNotEmpty() && filteredUsers.isEmpty()) {
@@ -1006,7 +887,9 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                     }
                 } else {
                     val lastActiveTimestamps by viewModel.lastActiveTimestamps.collectAsState()
-                    val recentsAndGroups = (recentChats + myGroups).distinctBy { it.email }
+                    val recentsAndGroups = (recentChats + myGroups)
+                        .distinctBy { it.email }
+                        .filter { u -> !securedChats.containsKey(u.email) }
                     val top4RecentEmails = remember(recentsAndGroups, lastActiveTimestamps) {
                         recentsAndGroups
                             .sortedByDescending { lastActiveTimestamps[it.email] ?: 0L }
@@ -1129,6 +1012,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                     } else {
                         // Recent chats list with smart highlighted sorting
                         val sortedRecents = recentChats
+                            .filter { u -> !securedChats.containsKey(u.email) }
                             .sortedWith(
                                 compareByDescending<User> { u ->
                                     (unreadCounts[u.email] ?: 0) > 0
@@ -1691,17 +1575,17 @@ fun PremiumActivationDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit)
 fun getAnimatedAccentColor(): Color {
     val infiniteTransition = rememberInfiniteTransition(label = "new_accent_color_transition")
     val animatedColor by infiniteTransition.animateColor(
-        initialValue = Color(0xFFFF5722), // Sunset Coral
-        targetValue = Color(0xFFFF5722),
+        initialValue = Color(0xFF6366F1), // Deep Royal Indigo
+        targetValue = Color(0xFF6366F1),
         animationSpec = infiniteRepeatable(
             animation = keyframes {
-                durationMillis = 12000
-                Color(0xFFFF5722) at 0      // Sunset Coral
-                Color(0xFFE040FB) at 2400   // Neon Orchid
-                Color(0xFF00E676) at 4800   // Glow Mint
-                Color(0xFF00B0FF) at 7200   // Vivid Sky Blue
-                Color(0xFFFFEB3B) at 9600   // Warm Sun Yellow
-                Color(0xFFFF5722) at 12000  // Loop back
+                durationMillis = 15000
+                Color(0xFF6366F1) at 0      // Deep Royal Indigo
+                Color(0xFF8B5CF6) at 3000   // Soft Orchid Violet
+                Color(0xFFEC4899) at 6000   // Premium Vibrant Pink
+                Color(0xFF0EA5E9) at 9000   // Vivid Sky Blue
+                Color(0xFF10B981) at 12000  // Bright Emerald Teal
+                Color(0xFF6366F1) at 15000  // Loop back
             },
             repeatMode = RepeatMode.Restart
         ),
@@ -2151,6 +2035,7 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
 
     // Extra modal toggles matching DOM options
     var showWallpaperDialog by remember { mutableStateOf(false) }
+    var showThemeDialog by remember { mutableStateOf(false) }
     var showNoteDialog by remember { mutableStateOf(false) }
     var showStatsDialog by remember { mutableStateOf(false) }
     var showPollDialog by remember { mutableStateOf(false) }
@@ -2212,7 +2097,19 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
         }
     }
 
-    Scaffold(
+    val currentTheme by viewModel.chatTheme.collectAsState()
+    val perChatThemes by viewModel.perChatTheme.collectAsState()
+    val perChatThemeVal = chatUser?.email?.let { perChatThemes[it] }
+    val windowTheme = perChatThemeVal ?: currentTheme
+    val bgBrush = getThemeGradient(windowTheme)
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(bgBrush)
+    ) {
+        Scaffold(
+            containerColor = Color.Transparent,
         topBar = {
             TopAppBar(
                 navigationIcon = {
@@ -2340,9 +2237,14 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
                             leadingIcon = { Icon(Icons.Filled.BarChart, null) }
                         )
                         DropdownMenuItem(
-                            text = { Text("🖼️ Custom") },
+                            text = { Text("🖼️ Custom Wallpaper") },
                             onClick = { isMenuExpanded = false; galleryLauncher.launch("image/*") },
                             leadingIcon = { Icon(Icons.Filled.Image, null) }
+                        )
+                        DropdownMenuItem(
+                            text = { Text("🎨 Choose Chat Theme") },
+                            onClick = { isMenuExpanded = false; showThemeDialog = true },
+                            leadingIcon = { Icon(Icons.Filled.Palette, null) }
                         )
                         DropdownMenuItem(
                             text = { Text("📝 Private Chat Note") },
@@ -2877,6 +2779,54 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
         )
     }
 
+    if (showThemeDialog) {
+        AlertDialog(
+            onDismissRequest = { showThemeDialog = false },
+            title = { Text("🎨 চ্যাট থিম পরিবর্তন") },
+            text = {
+                val themes = listOf("default", "sunset", "ocean", "forest", "midnight", "neon", "warm", "rose")
+                Column {
+                    Text("এই চ্যাটের জন্য নির্দিষ্ট একটি থিম নির্বাচন করুনঃ", fontSize = 13.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    themes.chunked(4).forEach { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            row.forEach { t ->
+                                val isSelected = (perChatThemeVal == t || (perChatThemeVal == null && currentTheme == t))
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .height(36.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(getThemeGradient(t))
+                                        .clickable {
+                                            chatUser?.email?.let { otherEmail ->
+                                                viewModel.setPerChatTheme(otherEmail, t)
+                                            }
+                                            showThemeDialog = false
+                                        }
+                                        .border(
+                                            width = if (isSelected) 2.dp else 0.dp,
+                                            color = Color.White,
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showThemeDialog = false }) {
+                    Text("বন্ধ করুন")
+                }
+            }
+        )
+    }
+
     if (showGroupMembersDialog && chatUser != null && chatUser!!.email.startsWith("group_")) {
         val groupId = chatUser!!.email
         val creatorEmail = groupCreators[groupId] ?: ""
@@ -2901,6 +2851,7 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
             },
             onDismiss = { showGroupMembersDialog = false }
         )
+    }
     }
 }
 
@@ -3565,20 +3516,6 @@ fun MessageBubble(
                         modifier = Modifier.size(16.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(2.dp))
-
-                // Delete button
-                IconButton(
-                    onClick = { showDeleteConfirmDialog = true },
-                    modifier = Modifier.size(28.dp).testTag("delete_message_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Delete,
-                        contentDescription = "Delete from Sheet",
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
             }
         }
 
@@ -3863,7 +3800,6 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     TabPill(text = "👤 Profile", active = activeTab == "profile") { activeTab = "profile" }
-                    TabPill(text = "🔒 Security", active = activeTab == "security") { activeTab = "security" }
                     TabPill(text = "🎨 Theme", active = activeTab == "appearance") { activeTab = "appearance" }
                     TabPill(text = "💞 Pair", active = activeTab == "pair") { activeTab = "pair" }
                     TabPill(text = "📱 Device", active = activeTab == "device") { activeTab = "device" }
@@ -4123,51 +4059,6 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                                     Text("প্রোফাইল সংরক্ষণ করুন")
                                 }
                             }
-                        }
-                    }
-
-                    "security" -> {
-                        Text("পাসওয়ার্ড পরিবর্তন করুনঃ", fontWeight = FontWeight.SemiBold)
-                        Spacer(modifier = Modifier.height(8.dp))
-                        OutlinedTextField(
-                            value = currentPass,
-                            onValueChange = { currentPass = it },
-                            label = { Text("বর্তমান পাসওয়ার্ড") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = newPass,
-                            onValueChange = { newPass = it },
-                            label = { Text("নতুন পাসওয়ার্ড") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = confirmPass,
-                            onValueChange = { confirmPass = it },
-                            label = { Text("পাসওয়ার্ড নিশ্চিত করুণ") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Button(
-                            onClick = {
-                                if (newPass == confirmPass && newPass.isNotEmpty()) {
-                                    viewModel.changePassword(
-                                        newPass,
-                                        onSuccess = {
-                                            Toast.makeText(context, "পাসওয়ার্ড সফলভাবে পরিবর্তিত!", Toast.LENGTH_SHORT).show()
-                                            onDismiss()
-                                        },
-                                        onError = {
-                                            Toast.makeText(context, it, Toast.LENGTH_LONG).show()
-                                        }
-                                    )
-                                } else {
-                                    Toast.makeText(context, "পাসওয়ার্ড ম্যাচ করেনি!", Toast.LENGTH_SHORT).show()
-                                }
-                            },
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Text("আপডেট করুন")
                         }
                     }
 

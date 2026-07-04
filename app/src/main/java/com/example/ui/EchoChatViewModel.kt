@@ -135,6 +135,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     private val _perChatWallpaper = MutableStateFlow<Map<String, String>>(emptyMap())
     val perChatWallpaper: StateFlow<Map<String, String>> = _perChatWallpaper.asStateFlow()
 
+    private val _perChatTheme = MutableStateFlow<Map<String, String>>(emptyMap())
+    val perChatTheme: StateFlow<Map<String, String>> = _perChatTheme.asStateFlow()
+
     // Last talk timestamps and seen maps
     private val _lastActiveTimestamps = MutableStateFlow<Map<String, Long>>(emptyMap())
     val lastActiveTimestamps: StateFlow<Map<String, Long>> = _lastActiveTimestamps.asStateFlow()
@@ -894,14 +897,27 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 } catch (e: Exception) {
                     null
                 }
+                val remoteTheme = try {
+                    FirebaseRestClient.service.getValue("chat_themes/$chatKeySanitized") as? String
+                } catch (e: Exception) {
+                    null
+                }
                 withContext(Dispatchers.Main) {
-                    val updated = _perChatWallpaper.value.toMutableMap()
+                    val updatedWall = _perChatWallpaper.value.toMutableMap()
                     if (remoteWallpaper != null) {
-                        updated[otherEmail] = remoteWallpaper
+                        updatedWall[otherEmail] = remoteWallpaper
                     } else {
-                        updated.remove(otherEmail)
+                        updatedWall.remove(otherEmail)
                     }
-                    _perChatWallpaper.value = updated
+                    _perChatWallpaper.value = updatedWall
+
+                    val updatedTheme = _perChatTheme.value.toMutableMap()
+                    if (remoteTheme != null) {
+                        updatedTheme[otherEmail] = remoteTheme
+                    } else {
+                        updatedTheme.remove(otherEmail)
+                    }
+                    _perChatTheme.value = updatedTheme
                 }
 
                 // 1. Fetch pending messages from Supabase under messages/$chatKey
@@ -1547,6 +1563,23 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     val updated = _perChatWallpaper.value.toMutableMap()
                     updated[otherEmail] = wallpaper
                     _perChatWallpaper.value = updated
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun setPerChatTheme(otherEmail: String, theme: String) {
+        val current = _currentUser.value ?: return
+        val chatKeySanitized = listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                FirebaseRestClient.service.setValue("chat_themes/$chatKeySanitized", theme)
+                withContext(Dispatchers.Main) {
+                    val updated = _perChatTheme.value.toMutableMap()
+                    updated[otherEmail] = theme
+                    _perChatTheme.value = updated
                 }
             } catch (e: Exception) {
                 e.printStackTrace()
