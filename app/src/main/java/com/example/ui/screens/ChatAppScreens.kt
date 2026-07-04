@@ -416,14 +416,23 @@ fun AuthScreen(viewModel: EchoChatViewModel) {
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(top = 16.dp),
-                            horizontalArrangement = Arrangement.Center
+                            horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Text(
                                 text = "নতুন অ্যাকাউন্ট খুলুন (Register)",
                                 color = MaterialTheme.colorScheme.primary,
-                                fontSize = 14.sp,
+                                fontSize = 12.sp,
                                 modifier = Modifier
                                     .clickable { screenMode = "register" }
+                                    .padding(4.dp),
+                                fontWeight = FontWeight.Medium
+                            )
+                            Text(
+                                text = "পাসওয়ার্ড ভুলে গেছেন? (Forgot)",
+                                color = MaterialTheme.colorScheme.secondary,
+                                fontSize = 12.sp,
+                                modifier = Modifier
+                                    .clickable { screenMode = "forgot"; forgotStep = 1 }
                                     .padding(4.dp),
                                 fontWeight = FontWeight.Medium
                             )
@@ -531,6 +540,161 @@ fun AuthScreen(viewModel: EchoChatViewModel) {
                                 .clickable { screenMode = "login" }
                         )
                     }
+
+                    "forgot" -> {
+                        Text(
+                            text = "Reset Access Key",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.Bold,
+                            modifier = Modifier.padding(bottom = 16.dp)
+                        )
+
+                        if (forgotStep == 1) {
+                            OutlinedTextField(
+                                value = forgotEmail,
+                                onValueChange = { forgotEmail = it },
+                                label = { Text("User ID/Email") },
+                                leadingIcon = { Icon(Icons.Default.Email, null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Button(
+                                onClick = {
+                                    if (forgotEmail.trim().isEmpty()) {
+                                        Toast.makeText(context, "ইমেইল প্রদান করুন", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        viewModel.requestForgotPasswordCode(forgotEmail.trim(), {
+                                            Toast.makeText(context, "রিসেট কোড পাঠানো হয়েছে!", Toast.LENGTH_SHORT).show()
+                                            forgotStep = 2
+                                        }, { err ->
+                                            Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+                                        })
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                enabled = !authLoading
+                            ) {
+                                if (authLoading) {
+                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                                } else {
+                                    Text("কোড পাঠান", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        } else if (forgotStep == 2) {
+                            Text(
+                                text = "কোডটি আপনার ইমেইলে পাঠানো হয়েছে। কোড লিখুনঃ",
+                                fontSize = 12.sp,
+                                modifier = Modifier.padding(bottom = 8.dp)
+                            )
+
+                            OutlinedTextField(
+                                value = forgotCode,
+                                onValueChange = { forgotCode = it },
+                                label = { Text("Verification Code") },
+                                leadingIcon = { Icon(Icons.Default.VpnKey, null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.End
+                            ) {
+                                if (timerSecs > 0) {
+                                    Text("রিসেন্ড করুন ($timerSecs s)", fontSize = 12.sp, color = Color.Gray)
+                                } else {
+                                    Text(
+                                        text = "কোড আবার পাঠান (Resend)",
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.clickable {
+                                            viewModel.requestForgotPasswordCode(forgotEmail.trim(), {
+                                                Toast.makeText(context, "কোড পুনরায় পাঠানো হয়েছে!", Toast.LENGTH_SHORT).show()
+                                            }, { err ->
+                                                Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+                                            })
+                                        }
+                                    )
+                                }
+                            }
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Button(
+                                onClick = {
+                                    if (forgotCode.trim().isEmpty()) {
+                                        Toast.makeText(context, "কোড প্রদান করুন", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        viewModel.verifyForgotPasswordCode(forgotEmail.trim(), forgotCode.trim(), {
+                                            Toast.makeText(context, "কোড ভেরিফিকেশন সফল!", Toast.LENGTH_SHORT).show()
+                                            forgotStep = 3
+                                        }, { err ->
+                                            Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+                                        })
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                enabled = !authLoading
+                            ) {
+                                if (authLoading) {
+                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                                } else {
+                                    Text("কোড যাচাই করুন", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        } else {
+                            OutlinedTextField(
+                                value = forgotNewPass,
+                                onValueChange = { forgotNewPass = it },
+                                label = { Text("New Access Key") },
+                                leadingIcon = { Icon(Icons.Default.Lock, null) },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+
+                            Spacer(modifier = Modifier.height(16.dp))
+
+                            Button(
+                                onClick = {
+                                    if (forgotNewPass.trim().isEmpty()) {
+                                        Toast.makeText(context, "নতুন পাসওয়ার্ড লিখুন", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        viewModel.resetPassword(forgotEmail.trim(), forgotNewPass.trim(), {
+                                            Toast.makeText(context, "পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে!", Toast.LENGTH_LONG).show()
+                                            screenMode = "login"
+                                        }, { err ->
+                                            Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+                                        })
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary),
+                                enabled = !authLoading
+                            ) {
+                                if (authLoading) {
+                                    CircularProgressIndicator(color = Color.White, modifier = Modifier.size(20.dp))
+                                } else {
+                                    Text("পাসওয়ার্ড রিসেট করুন", fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+
+                        Text(
+                            text = "লগইন করুন (Back to Login)",
+                            color = MaterialTheme.colorScheme.primary,
+                            fontSize = 14.sp,
+                            modifier = Modifier
+                                .padding(top = 16.dp)
+                                .clickable { screenMode = "login" }
+                        )
+                    }
                 }
             }
         }
@@ -557,6 +721,10 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     val unreadCounts by viewModel.unreadCounts.collectAsState()
     val securedChats by viewModel.securedChats.collectAsState()
     val premiumVerifiedColors by viewModel.premiumVerifiedColors.collectAsState()
+    val hiddenChats by viewModel.hiddenChats.collectAsState()
+
+    val hasUnreadMessages = remember(unreadCounts) { unreadCounts.values.any { it > 0 } }
+    val hasUnreadHiddenMessages = remember(unreadCounts, hiddenChats) { hiddenChats.keys.any { email -> (unreadCounts[email] ?: 0) > 0 } }
 
     var showProfileModal by remember { mutableStateOf(false) }
     var showPremiumModal by remember { mutableStateOf(false) }
@@ -627,6 +795,8 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     var showPinUnlockDialog by remember { mutableStateOf(false) }
     var pinUnlockValue by remember { mutableStateOf("") }
     var pinUnlockError by remember { mutableStateOf(false) }
+    var showHideSetDialog by remember { mutableStateOf(false) }
+    var hideTextValue by remember { mutableStateOf("") }
 
     AnimatedContent(
         targetState = currentChatUser,
@@ -647,13 +817,65 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
             ChatWindowScreen(viewModel = viewModel, onEditGroup = { groupToEdit = it; showGroupCustomizerDialog = true })
         } else {
             Scaffold(
+                containerColor = Color.Transparent,
             topBar = {
                 TopAppBar(
+                    colors = TopAppBarDefaults.topAppBarColors(
+                        containerColor = Color.Transparent
+                    ),
                     title = {
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(Icons.Filled.ChatBubble, null, tint = MaterialTheme.colorScheme.primary)
+                            Box {
+                                Icon(Icons.Filled.ChatBubble, null, tint = MaterialTheme.colorScheme.primary)
+                                if (hasUnreadMessages) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(8.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Red)
+                                            .align(Alignment.TopEnd)
+                                    )
+                                }
+                            }
                             Spacer(modifier = Modifier.width(8.dp))
-                            Text("Echo Chat", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                            Box {
+                                Text("Echo Chat", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                                if (hasUnreadMessages) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(6.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Red)
+                                            .align(Alignment.TopEnd)
+                                            .offset(x = 12.dp, y = (-2).dp)
+                                    )
+                                }
+                            }
+                            
+                            // Glowing green light in empty space for hidden folder messages
+                            if (hasUnreadHiddenMessages) {
+                                Spacer(modifier = Modifier.width(20.dp))
+                                val infiniteTransition = rememberInfiniteTransition(label = "green_light")
+                                val alpha by infiniteTransition.animateFloat(
+                                    initialValue = 0.3f,
+                                    targetValue = 1.0f,
+                                    animationSpec = infiniteRepeatable(
+                                        animation = tween(1000, easing = LinearEasing),
+                                        repeatMode = RepeatMode.Reverse
+                                    ),
+                                    label = "green_light_alpha"
+                                )
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(10.dp)
+                                            .clip(CircleShape)
+                                            .background(Color.Green.copy(alpha = alpha))
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("New SMS", color = Color.Green, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                }
+                            }
                         }
                     },
                     actions = {
@@ -725,10 +947,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         IconButton(onClick = { viewModel.logout() }) {
                             Icon(Icons.Default.ExitToApp, null, tint = Color.Red)
                         }
-                    },
-                    colors = TopAppBarDefaults.topAppBarColors(
-                        containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.5f)
-                    )
+                    }
                 )
             }
         ) { padding ->
@@ -803,11 +1022,16 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                     } else {
                         val filteredUsers = if (searchField.isNotEmpty()) {
                             allActiveUsers.filter { u ->
-                                (!securedChats.containsKey(u.email) && (u.name.lowercase().contains(searchField.lowercase()) || u.email.lowercase().contains(searchField.lowercase()))) ||
-                                (securedChats[u.email] != null && securedChats[u.email] == searchField)
+                                val isHidden = hiddenChats.containsKey(u.email)
+                                if (isHidden) {
+                                    val secretKey = hiddenChats[u.email] ?: ""
+                                    searchField.trim().lowercase() == secretKey.trim().lowercase()
+                                } else {
+                                    u.name.lowercase().contains(searchField.lowercase()) || u.email.lowercase().contains(searchField.lowercase())
+                                }
                             }.distinctBy { it.email }
                         } else {
-                            allActiveUsers.filter { u -> !securedChats.containsKey(u.email) }.shuffled()
+                            allActiveUsers.filter { u -> !hiddenChats.containsKey(u.email) }.shuffled()
                         }
 
                         if (searchField.isNotEmpty() && filteredUsers.isEmpty()) {
@@ -889,7 +1113,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                     val lastActiveTimestamps by viewModel.lastActiveTimestamps.collectAsState()
                     val recentsAndGroups = (recentChats + myGroups)
                         .distinctBy { it.email }
-                        .filter { u -> !securedChats.containsKey(u.email) }
+                        .filter { u -> !hiddenChats.containsKey(u.email) }
                     val top4RecentEmails = remember(recentsAndGroups, lastActiveTimestamps) {
                         recentsAndGroups
                             .sortedByDescending { lastActiveTimestamps[it.email] ?: 0L }
@@ -1012,7 +1236,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                     } else {
                         // Recent chats list with smart highlighted sorting
                         val sortedRecents = recentChats
-                            .filter { u -> !securedChats.containsKey(u.email) }
+                            .filter { u -> !hiddenChats.containsKey(u.email) }
                             .sortedWith(
                                 compareByDescending<User> { u ->
                                     (unreadCounts[u.email] ?: 0) > 0
@@ -1115,6 +1339,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     if (showActionDialog && activeLongClickUser != null) {
         val target = activeLongClickUser!!
         val isSecured = securedChats.containsKey(target.email)
+        val isHidden = hiddenChats.containsKey(target.email)
 
         AlertDialog(
             onDismissRequest = { showActionDialog = false },
@@ -1146,6 +1371,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
             text = { Text("আপনার নির্বাচিত ইউজারের জন্য নিচে দেয়া অপারেশনগুলোর একটি নির্বাচন করুণঃ") },
             confirmButton = {
                 Column(modifier = Modifier.fillMaxWidth()) {
+                    // Option 1: Chat Lock
                     Button(
                         onClick = {
                             showActionDialog = false
@@ -1162,8 +1388,30 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                             containerColor = if (isSecured) Color.Gray else MaterialTheme.colorScheme.primary
                         )
                     ) {
-                        Text(if (isSecured) "🔓 চ্যাট আনলক করো" else "🔒 চ্যাট সিকিউর করো")
+                        Text(if (isSecured) "🔓 চ্যাট আনলক করো" else "🔒 চ্যাট সিকিউর করো (Chat Lock)")
                     }
+
+                    // Option 2: Hide
+                    Button(
+                        onClick = {
+                            showActionDialog = false
+                            if (isHidden) {
+                                viewModel.hideChat(target.email, null)
+                                Toast.makeText(context, "চ্যাটটি আনহাইড করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                hideTextValue = ""
+                                showHideSetDialog = true
+                            }
+                        },
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = if (isHidden) MaterialTheme.colorScheme.secondary else Color(0xFFF59E0B)
+                        )
+                    ) {
+                        Text(if (isHidden) "👁️ চ্যাট আনহাইড করুন (Unhide)" else "🙈 চ্যাট হাইড করুন (Hide)")
+                    }
+
+                    // Option 3: Delete
                     Button(
                         onClick = {
                             showActionDialog = false
@@ -1173,7 +1421,52 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         modifier = Modifier.fillMaxWidth(),
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
                     ) {
-                        Text("🗑️ চ্যাট ডিলিট করুন")
+                        Text("🗑️ চ্যাট ডিলিট করুন (Delete)")
+                    }
+                }
+            }
+        )
+    }
+
+    // Hide Password/Secret Set Dialog
+    if (showHideSetDialog && activeLongClickUser != null) {
+        val target = activeLongClickUser!!
+        AlertDialog(
+            onDismissRequest = { showHideSetDialog = false },
+            title = { Text("🙈 চ্যাট হাইড করুন (Secret Key Set)", fontWeight = FontWeight.Bold) },
+            text = {
+                Column {
+                    Text("চ্যাটটি হাইড করার জন্য একটি গোপন শব্দ বা কোড লিখুন। পরবর্তীতে এই কোডটি দিয়ে সার্চ করলে চ্যাটটি পুনরায় খুঁজে পাবেনঃ")
+                    Spacer(modifier = Modifier.height(8.dp))
+                    OutlinedTextField(
+                        value = hideTextValue,
+                        onValueChange = { hideTextValue = it },
+                        placeholder = { Text("যেমন: secret123, swapno") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+            },
+            confirmButton = {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End
+                ) {
+                    TextButton(onClick = { showHideSetDialog = false }) {
+                        Text("বাতিল")
+                    }
+                    Button(
+                        onClick = {
+                            if (hideTextValue.trim().isEmpty()) {
+                                Toast.makeText(context, "একটি কোড বা শব্দ লিখুন!", Toast.LENGTH_SHORT).show()
+                            } else {
+                                viewModel.hideChat(target.email, hideTextValue.trim())
+                                showHideSetDialog = false
+                                Toast.makeText(context, "চ্যাটটি সফলভাবে হাইড করা হয়েছে!", Toast.LENGTH_LONG).show()
+                            }
+                        }
+                    ) {
+                        Text("সাবমিট")
                     }
                 }
             }
@@ -2336,7 +2629,7 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
                     .then(Modifier.drawBehind {
                         // Support custom wall color if needed
                     })
-                    .then(Modifier.background(MaterialTheme.colorScheme.background))
+                    .then(Modifier.background(Color.Transparent))
             ) {
                 // If the wallpaper is "receiver_center", show a large centered watermark of the partner's profile photo
                 if (perChatWallpaperVal == "receiver_center") {
@@ -3802,6 +4095,7 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                     TabPill(text = "👤 Profile", active = activeTab == "profile") { activeTab = "profile" }
                     TabPill(text = "🎨 Theme", active = activeTab == "appearance") { activeTab = "appearance" }
                     TabPill(text = "💞 Pair", active = activeTab == "pair") { activeTab = "pair" }
+                    TabPill(text = "🔑 Password", active = activeTab == "password") { activeTab = "password" }
                     TabPill(text = "📱 Device", active = activeTab == "device") { activeTab = "device" }
                 }
 
@@ -4332,16 +4626,72 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                             }
                         }
                     }
+
+                    "password" -> {
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            Text("🔑 পাসওয়ার্ড (Access Key) পরিবর্তন করুণঃ", fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                            Spacer(modifier = Modifier.height(4.dp))
+
+                            OutlinedTextField(
+                                value = currentPass,
+                                onValueChange = { currentPass = it },
+                                label = { Text("বর্তমান পাসওয়ার্ড") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+
+                            OutlinedTextField(
+                                value = newPass,
+                                onValueChange = { newPass = it },
+                                label = { Text("নতুন পাসওয়ার্ড") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+
+                            OutlinedTextField(
+                                value = confirmPass,
+                                onValueChange = { confirmPass = it },
+                                label = { Text("নতুন পাসওয়ার্ড নিশ্চিত করুণ") },
+                                modifier = Modifier.fillMaxWidth(),
+                                singleLine = true
+                            )
+
+                            Spacer(modifier = Modifier.height(8.dp))
+
+                            Button(
+                                onClick = {
+                                    if (currentPass.isEmpty() || newPass.isEmpty() || confirmPass.isEmpty()) {
+                                        Toast.makeText(context, "সবগুলো ঘর পূরণ করুণ", Toast.LENGTH_SHORT).show()
+                                    } else if (newPass != confirmPass) {
+                                        Toast.makeText(context, "নতুন পাসওয়ার্ড দুইটি মিলেনি", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        viewModel.changePassword(currentPass, newPass, {
+                                            Toast.makeText(context, "পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                            currentPass = ""
+                                            newPass = ""
+                                            confirmPass = ""
+                                        }, { err ->
+                                            Toast.makeText(context, err, Toast.LENGTH_LONG).show()
+                                        })
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                            ) {
+                                Text("পরিবর্তন নিশ্চিত করুণ", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
                 }
                 }
             }
         }
     }
-}
-
-// Dialog helper extension helper
-fun EchoChatViewModel.changePassword(newPass: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
-    // stub connector
 }
 
 @Composable

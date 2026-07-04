@@ -124,6 +124,29 @@ object LocalStorage {
         getPrefs(context).edit().putString("SECURED_CHATS_JSON", json).apply()
     }
 
+    // Hidden chats list (stores map of chat email to hidden search key)
+    fun getHiddenChats(context: Context): Map<String, String> {
+        val json = getPrefs(context).getString("HIDDEN_CHATS_JSON", null) ?: return emptyMap()
+        return try {
+            val type = Types.newParameterizedType(Map::class.java, String::class.java, String::class.java)
+            moshi.adapter<Map<String, String>>(type).fromJson(json) ?: emptyMap()
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    fun saveHiddenChat(context: Context, email: String, key: String?) {
+        val current = getHiddenChats(context).toMutableMap()
+        if (key == null) {
+            current.remove(email)
+        } else {
+            current[email] = key
+        }
+        val type = Types.newParameterizedType(Map::class.java, String::class.java, String::class.java)
+        val json = moshi.adapter<Map<String, String>>(type).toJson(current)
+        getPrefs(context).edit().putString("HIDDEN_CHATS_JSON", json).apply()
+    }
+
     // Unread message counts map
     fun getUnreadCounts(context: Context): Map<String, Int> {
         val json = getPrefs(context).getString("UNREAD_COUNTS_JSON", null) ?: return emptyMap()

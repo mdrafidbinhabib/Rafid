@@ -91,6 +91,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     private val _securedChats = MutableStateFlow<Map<String, String>>(LocalStorage.getSecuredChats(context))
     val securedChats: StateFlow<Map<String, String>> = _securedChats.asStateFlow()
 
+    private val _hiddenChats = MutableStateFlow<Map<String, String>>(LocalStorage.getHiddenChats(context))
+    val hiddenChats: StateFlow<Map<String, String>> = _hiddenChats.asStateFlow()
+
     private val _deletedConversations = MutableStateFlow<Set<String>>(LocalStorage.getDeletedConversations(context))
     val deletedConversations: StateFlow<Set<String>> = _deletedConversations.asStateFlow()
 
@@ -1412,8 +1415,18 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         loadAllConversationsAndUsers() // re-map names
     }
 
+    fun hideChat(email: String, key: String?) {
+        LocalStorage.saveHiddenChat(context, email, key)
+        _hiddenChats.value = LocalStorage.getHiddenChats(context)
+        loadAllConversationsAndUsers() // re-map names
+    }
+
     fun deleteConversation(email: String) {
         LocalStorage.deleteConversation(context, email)
+        LocalStorage.saveSecuredChatPassword(context, email, null)
+        _securedChats.value = LocalStorage.getSecuredChats(context)
+        LocalStorage.saveHiddenChat(context, email, null)
+        _hiddenChats.value = LocalStorage.getHiddenChats(context)
         _deletedConversations.value = LocalStorage.getDeletedConversations(context)
         loadAllConversationsAndUsers()
     }
@@ -1799,6 +1812,40 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) { onError("নেটওয়ার্ক ত্রুটি") }
+            }
+        }
+    }
+
+    fun changePassword(oldPass: String, newPass: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        val current = _currentUser.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                // 1. Verify old password by logging in
+                val loginRes = RetrofitClient.echoChatApi.login(scriptUrl, email = current.email, oldPassword = oldPass)
+                if (loginRes.status != "success") {
+                    withContext(Dispatchers.Main) {
+                        onError("বর্তমান পাসওয়ার্ডটি সঠিক নয়")
+                    }
+                    return@launch
+                }
+                
+                // 2. Call resetPassword API to update on backend
+                val res = RetrofitClient.echoChatApi.resetPassword(scriptUrl, email = current.email, newPassword = newPass)
+                if (res.status == "success") {
+                    // Update local cached password
+                    LocalStorage.saveLoggedInUser(context, current, newPass)
+                    withContext(Dispatchers.Main) {
+                        onSuccess()
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        onError(res.message ?: "পাসওয়ার্ড পরিবর্তন ব্যর্থ হয়েছে")
+                    }
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onError("নেটওয়ার্ক ত্রুটি")
+                }
             }
         }
     }
