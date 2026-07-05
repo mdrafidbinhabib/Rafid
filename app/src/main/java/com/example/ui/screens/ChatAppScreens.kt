@@ -839,7 +839,19 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             Box {
-                                Text("Echo Chat", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                                if (hasUnreadHiddenMessages) {
+                                    val coloredTitle = androidx.compose.ui.text.buildAnnotatedString {
+                                        withStyle(style = androidx.compose.ui.text.SpanStyle(color = Color(0xFF4CAF50))) { // Green
+                                            append("Echo ")
+                                        }
+                                        withStyle(style = androidx.compose.ui.text.SpanStyle(color = Color(0xFFE53935))) { // Red
+                                            append("Chat")
+                                        }
+                                    }
+                                    Text(text = coloredTitle, fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                                } else {
+                                    Text("Echo Chat", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                                }
                                 if (hasUnreadMessages) {
                                     Box(
                                         modifier = Modifier
@@ -3621,10 +3633,22 @@ fun MessageBubble(
         }
 
         Row(
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Top,
             horizontalArrangement = if (msg.isOwn) Arrangement.End else Arrangement.Start,
             modifier = Modifier.fillMaxWidth()
         ) {
+            if (!msg.isOwn) {
+                val senderImageUrl = extractLinkFromName(msg.senderName)
+                SafeAvatarImage(
+                    model = senderImageUrl,
+                    contentDescription = "Sender Profile Photo",
+                    modifier = Modifier
+                        .padding(start = 8.dp, top = 4.dp, end = 4.dp)
+                        .size(32.dp)
+                        .clip(CircleShape)
+                        .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f), CircleShape)
+                )
+            }
             if (msg.isOwn) {
                 // Delete button
                 IconButton(
@@ -3765,12 +3789,29 @@ fun MessageBubble(
                                     .heightIn(max = 220.dp)
                                     .clip(RoundedCornerShape(10.dp))
                             ) {
-                                AsyncImage(
-                                    model = inlineImageUrl,
-                                    contentDescription = "Shared Image Link",
-                                    contentScale = ContentScale.Fit,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
+                                Box(modifier = Modifier.fillMaxWidth()) {
+                                    AsyncImage(
+                                        model = inlineImageUrl,
+                                        contentDescription = "Shared Image Link",
+                                        contentScale = ContentScale.Fit,
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                    Surface(
+                                        color = Color.Black.copy(alpha = 0.65f),
+                                        shape = RoundedCornerShape(4.dp),
+                                        modifier = Modifier
+                                            .align(Alignment.BottomEnd)
+                                            .padding(6.dp)
+                                    ) {
+                                        Text(
+                                            text = "📷 Scene: 100% Captured",
+                                            color = Color.White,
+                                            fontSize = 9.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                                        )
+                                    }
+                                }
                             }
                         }
                     }
@@ -4093,6 +4134,7 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     TabPill(text = "👤 Profile", active = activeTab == "profile") { activeTab = "profile" }
+                    TabPill(text = "🌐 Language", active = activeTab == "language") { activeTab = "language" }
                     TabPill(text = "🎨 Theme", active = activeTab == "appearance") { activeTab = "appearance" }
                     TabPill(text = "💞 Pair", active = activeTab == "pair") { activeTab = "pair" }
                     TabPill(text = "🔑 Password", active = activeTab == "password") { activeTab = "password" }
@@ -4684,6 +4726,73 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                             ) {
                                 Text("পরিবর্তন নিশ্চিত করুণ", fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                    "language" -> {
+                        val appLanguage by viewModel.appLanguage.collectAsState()
+                        Column(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = if (appLanguage == "en") "Select App Language:" else "অ্যাপের ভাষা নির্বাচন করুনঃ",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleMedium
+                            )
+                            
+                            // English Option
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.changeLanguage("en") },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (appLanguage == "en") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                                ),
+                                border = if (appLanguage == "en") androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = appLanguage == "en",
+                                        onClick = { viewModel.changeLanguage("en") }
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text("English", fontWeight = FontWeight.Bold)
+                                        Text("Set app interface to English", fontSize = 11.sp, color = Color.Gray)
+                                    }
+                                }
+                            }
+                            
+                            // Bengali Option
+                            Card(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { viewModel.changeLanguage("bn") },
+                                colors = CardDefaults.cardColors(
+                                    containerColor = if (appLanguage == "bn") MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surface
+                                ),
+                                border = if (appLanguage == "bn") androidx.compose.foundation.BorderStroke(2.dp, MaterialTheme.colorScheme.primary) else androidx.compose.foundation.BorderStroke(1.dp, Color.LightGray),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                Row(
+                                    modifier = Modifier.padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    RadioButton(
+                                        selected = appLanguage == "bn",
+                                        onClick = { viewModel.changeLanguage("bn") }
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column {
+                                        Text("বাংলা (Bengali)", fontWeight = FontWeight.Bold)
+                                        Text("অ্যাপের ভাষা বাংলায় পরিবর্তন করুন", fontSize = 11.sp, color = Color.Gray)
+                                    }
+                                }
                             }
                         }
                     }

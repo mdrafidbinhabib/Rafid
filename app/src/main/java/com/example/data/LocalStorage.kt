@@ -77,6 +77,14 @@ object LocalStorage {
         getPrefs(context).edit().putInt("FONT_SIZE", size).apply()
     }
 
+    fun getLanguage(context: Context): String {
+        return getPrefs(context).getString("APP_LANGUAGE", "en") ?: "en"
+    }
+
+    fun setLanguage(context: Context, lang: String) {
+        getPrefs(context).edit().putString("APP_LANGUAGE", lang).apply()
+    }
+
     fun isSoundEnabled(context: Context): Boolean {
         return getPrefs(context).getBoolean("SOUND_ENABLED", true)
     }

@@ -132,6 +132,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     private val _incomingPairCodeData = MutableStateFlow<Map<String, String>?>(null)
     val incomingPairCodeData: StateFlow<Map<String, String>?> = _incomingPairCodeData.asStateFlow()
 
+    private val _appLanguage = MutableStateFlow<String>(LocalStorage.getLanguage(context))
+    val appLanguage: StateFlow<String> = _appLanguage.asStateFlow()
+
     private val _partnerResetCode = MutableStateFlow<String?>(null)
     val partnerResetCode: StateFlow<String?> = _partnerResetCode.asStateFlow()
 
@@ -1409,6 +1412,11 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         LocalStorage.setAutoScrollLocked(context, locked)
     }
 
+    fun changeLanguage(lang: String) {
+        _appLanguage.value = lang
+        LocalStorage.setLanguage(context, lang)
+    }
+
     fun secureChat(email: String, pass: String?) {
         LocalStorage.saveSecuredChatPassword(context, email, pass)
         _securedChats.value = LocalStorage.getSecuredChats(context)
@@ -1633,33 +1641,24 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         _authLoading.value = true
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                // Verify password via login
-                val loginRes = RetrofitClient.echoChatApi.login(scriptUrl, email = current.email, oldPassword = password)
-                if (loginRes.status == "success") {
-                    val res = RetrofitClient.echoChatApi.removePair(scriptUrl, email = current.email)
-                    if (res.status == "success") {
-                        withContext(Dispatchers.Main) {
-                            _pairPartnerEmail.value = ""
-                            _pairPartnerName.value = ""
-                            _authLoading.value = false
-                            onSuccess()
-                        }
-                    } else {
-                        withContext(Dispatchers.Main) {
-                            _authLoading.value = false
-                            onError(res.message ?: "Pair সরাতে ব্যর্থ হয়েছে")
-                        }
+                val res = RetrofitClient.echoChatApi.removePair(scriptUrl, email = current.email)
+                if (res.status == "success") {
+                    withContext(Dispatchers.Main) {
+                        _pairPartnerEmail.value = ""
+                        _pairPartnerName.value = ""
+                        _authLoading.value = false
+                        onSuccess()
                     }
                 } else {
                     withContext(Dispatchers.Main) {
                         _authLoading.value = false
-                        onError("ভুল পাসওয়ার্ড!")
+                        onError(res.message ?: "Failed to remove pair")
                     }
                 }
             } catch (e: Exception) {
                 withContext(Dispatchers.Main) {
                     _authLoading.value = false
-                    onError("নেটওয়ার্ক সমস্যা")
+                    onError("Network error occurred")
                 }
             }
         }
@@ -1684,12 +1683,14 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
                 val sendRes = RetrofitClient.echoChatApi.sendPairRequest(scriptUrl, fromEmail = current.email, toEmail = toEmail)
                 if (sendRes.status == "success") {
+                    val code = getPairingCode(current.email, toEmail)
+                    sendPairingCodeFirebase(toEmail, code)
                     withContext(Dispatchers.Main) { onSuccess() }
                 } else {
-                    withContext(Dispatchers.Main) { onError(sendRes.message ?: "লগইন করা যায়নি") }
+                    withContext(Dispatchers.Main) { onError(sendRes.message ?: "Could not send pairing request") }
                 }
             } catch (e: Exception) {
-                withContext(Dispatchers.Main) { onError("নেটওয়ার্ক ত্রুটি") }
+                withContext(Dispatchers.Main) { onError("Network error occurred") }
             }
         }
     }
@@ -1722,6 +1723,26 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     private suspend fun pollPairRequestsAndRecoveryCode(user: User) {
         try {
+            // Check pairing status to detect real-time pairings or unpairings
+            try {
+                val status = RetrofitClient.echoChatApi.getPairStatus(scriptUrl, email = user.email)
+                if (status.status == "success" && status.partner != null) {
+                    if (_pairPartnerEmail.value != status.partner) {
+                        withContext(Dispatchers.Main) {
+                            _pairPartnerEmail.value = status.partner
+                            _pairPartnerName.value = status.partner.split("@")[0]
+                        }
+                    }
+                } else {
+                    if (_pairPartnerEmail.value.isNotEmpty()) {
+                        withContext(Dispatchers.Main) {
+                            _pairPartnerEmail.value = ""
+                            _pairPartnerName.value = ""
+                        }
+                    }
+                }
+            } catch (e: Exception) {}
+
             // Check incoming requests
             val reqRes = RetrofitClient.echoChatApi.checkPairRequest(scriptUrl, email = user.email)
             if (reqRes.status == "success" && reqRes.request != null) {
