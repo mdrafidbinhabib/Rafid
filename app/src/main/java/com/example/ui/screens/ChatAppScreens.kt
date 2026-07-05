@@ -732,6 +732,15 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     var isSearchLoading by remember { mutableStateOf(false) }
     var searchField by remember { mutableStateOf("") }
 
+    val isViewingHidden = remember(searchField, currentChatUser, hiddenChats, allActiveUsers) {
+        val isViewingHiddenFolder = searchField.isNotEmpty() && allActiveUsers.any { u ->
+            val isHidden = hiddenChats.containsKey(u.email)
+            isHidden && searchField.trim().lowercase() == (hiddenChats[u.email] ?: "").trim().lowercase()
+        }
+        val isViewingHiddenChat = currentChatUser?.let { hiddenChats.containsKey(it.email) } == true
+        isViewingHiddenFolder || isViewingHiddenChat
+    }
+
     val myGroups by viewModel.myGroups.collectAsState()
     val groupMembers by viewModel.groupMembers.collectAsState()
     var dashboardTab by remember { mutableStateOf("all") }
@@ -867,25 +876,40 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                             // Glowing green light in empty space for hidden folder messages
                             if (hasUnreadHiddenMessages) {
                                 Spacer(modifier = Modifier.width(20.dp))
-                                val infiniteTransition = rememberInfiniteTransition(label = "green_light")
-                                val alpha by infiniteTransition.animateFloat(
-                                    initialValue = 0.3f,
-                                    targetValue = 1.0f,
-                                    animationSpec = infiniteRepeatable(
-                                        animation = tween(1000, easing = LinearEasing),
-                                        repeatMode = RepeatMode.Reverse
-                                    ),
-                                    label = "green_light_alpha"
-                                )
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(10.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.Green.copy(alpha = alpha))
+                                if (isViewingHidden) {
+                                    // Once seen/viewed, STOP uploading and downloading animations!
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .clip(CircleShape)
+                                                .background(Color.Gray)
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("Sync Stopped", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                    }
+                                } else {
+                                    // Actively pulsing representing background uploading and downloading
+                                    val infiniteTransition = rememberInfiniteTransition(label = "green_light")
+                                    val alpha by infiniteTransition.animateFloat(
+                                        initialValue = 0.3f,
+                                        targetValue = 1.0f,
+                                        animationSpec = infiniteRepeatable(
+                                            animation = tween(800, easing = LinearEasing),
+                                            repeatMode = RepeatMode.Reverse
+                                        ),
+                                        label = "green_light_alpha"
                                     )
-                                    Spacer(modifier = Modifier.width(4.dp))
-                                    Text("New SMS", color = Color.Green, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Box(
+                                            modifier = Modifier
+                                                .size(10.dp)
+                                                .clip(CircleShape)
+                                                .background(Color.Green.copy(alpha = alpha))
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text("⬆️ Syncing ⬇️", color = Color.Green, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                                    }
                                 }
                             }
                         }
@@ -1718,6 +1742,44 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
             }
         )
     }
+
+    // Glowing Neon Corner Color Pop-up for Hidden Folder Notifications
+    if (hasUnreadHiddenMessages && !isViewingHidden) {
+        val infiniteTransition = rememberInfiniteTransition(label = "corner_color_popup")
+        val alpha by infiniteTransition.animateFloat(
+            initialValue = 0.5f,
+            targetValue = 1.0f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1000, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "corner_color_alpha"
+        )
+        val scale by infiniteTransition.animateFloat(
+            initialValue = 0.8f,
+            targetValue = 1.25f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1000, easing = FastOutSlowInEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "corner_color_scale"
+        )
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = 16.dp, end = 16.dp),
+            contentAlignment = Alignment.TopEnd
+        ) {
+            Box(
+                modifier = Modifier
+                    .graphicsLayer(scaleX = scale, scaleY = scale)
+                    .size(16.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFFFF007F).copy(alpha = alpha)) // Neon Magenta Pink
+                    .border(2.5.dp, Color.White, CircleShape)
+            )
+        }
+    }
 }
 
 @Composable
@@ -2029,7 +2091,7 @@ fun UserItemRow(
     isUprooted: Boolean = false
 ) {
     val rowBg = if (unreadCount > 0) {
-        MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.18f)
+        Color(0xFF2196F3).copy(alpha = 0.15f)
     } else if (isUprooted) {
         MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.12f)
     } else if (isNewUser) {
@@ -2040,7 +2102,7 @@ fun UserItemRow(
 
     val shape = RoundedCornerShape(12.dp)
     val borderModifier = if (unreadCount > 0) {
-        Modifier.border(2.dp, MaterialTheme.colorScheme.primary, shape)
+        Modifier.border(2.dp, Color(0xFF2196F3), shape)
     } else if (isUprooted) {
         Modifier.border(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f), shape)
     } else {
@@ -2281,6 +2343,14 @@ fun UserItemRow(
                         fontWeight = FontWeight.Bold
                     )
                 }
+                Spacer(modifier = Modifier.width(6.dp))
+                // Beautiful Solid Blue Dot for New SMS
+                Box(
+                    modifier = Modifier
+                        .size(10.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFF2196F3))
+                )
             }
         }
     }
