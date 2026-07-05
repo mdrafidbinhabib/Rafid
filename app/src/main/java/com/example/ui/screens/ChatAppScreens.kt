@@ -722,6 +722,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     val securedChats by viewModel.securedChats.collectAsState()
     val premiumVerifiedColors by viewModel.premiumVerifiedColors.collectAsState()
     val hiddenChats by viewModel.hiddenChats.collectAsState()
+    val lastMessageSenderMap by viewModel.lastMessageSenderMap.collectAsState()
 
     val hasUnreadMessages = remember(unreadCounts) { unreadCounts.values.any { it > 0 } }
     val hasUnreadHiddenMessages = remember(unreadCounts, hiddenChats) { hiddenChats.keys.any { email -> (unreadCounts[email] ?: 0) > 0 } }
@@ -739,6 +740,10 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
         }
         val isViewingHiddenChat = currentChatUser?.let { hiddenChats.containsKey(it.email) } == true
         isViewingHiddenFolder || isViewingHiddenChat
+    }
+
+    LaunchedEffect(isViewingHidden) {
+        viewModel.setViewingHidden(isViewingHidden)
     }
 
     val myGroups by viewModel.myGroups.collectAsState()
@@ -1005,6 +1010,32 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         TabPill(text = "👥 Groups", active = (dashboardTab == "groups"), onClick = { dashboardTab = "groups" })
                         
                         Spacer(modifier = Modifier.weight(1f))
+
+                        // Circular option showing hidden folder status
+                        Box(
+                            modifier = Modifier
+                                .size(24.dp)
+                                .clip(CircleShape)
+                                .background(if (hasUnreadHiddenMessages) Color(0xFFE53935) else Color(0xFF4CAF50))
+                                .border(1.5.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), CircleShape)
+                                .clickable {
+                                    android.widget.Toast.makeText(
+                                        context,
+                                        if (hasUnreadHiddenMessages) "🔴 গোপন ফোল্ডারে নতুন মেসেজ রয়েছে!" else "🟢 গোপন ফোল্ডারে কোনো নতুন মেসেজ নেই",
+                                        android.widget.Toast.LENGTH_SHORT
+                                    ).show()
+                                },
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(10.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.White.copy(alpha = 0.45f))
+                            )
+                        }
+
+                        Spacer(modifier = Modifier.width(4.dp))
                         
                         IconButton(
                             onClick = {
@@ -1121,11 +1152,26 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                             LazyColumn(modifier = Modifier.fillMaxSize()) {
                                 items(filteredUsers) { user ->
                                     val unread = unreadCounts[user.email] ?: 0
+                                    val isLastMessageOwn = remember(user.email, lastMessageSenderMap, currentUser) {
+                                        val sender = lastMessageSenderMap[user.email]
+                                        if (sender != null) {
+                                            sender == currentUser?.email
+                                        } else {
+                                            val currentEmail = currentUser?.email
+                                            if (currentEmail != null) {
+                                                val chatKey = if (user.email.startsWith("group_")) user.email else listOf(currentEmail, user.email).sorted().joinToString("__")
+                                                LocalStorage.getLocalMessages(context, chatKey).lastOrNull()?.senderEmail == currentEmail
+                                            } else {
+                                                false
+                                            }
+                                        }
+                                    }
                                     UserItemRow(
                                         user = user,
                                         unreadCount = unread,
                                         isSecured = securedChats.containsKey(user.email),
                                         verifiedColor = premiumVerifiedColors[user.email],
+                                        isLastMessageOwn = isLastMessageOwn,
                                         onSelect = {
                                             val lockPass = securedChats[user.email]
                                             if (lockPass != null) {
@@ -1187,6 +1233,21 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         allActiveUsers.find { it.email.lowercase() == email.lowercase() } ?: User(email = email, name = email.split("@")[0], photoUrl = "")
                                     }
 
+                                    val isLastMessageOwn = remember(conversation.email, lastMessageSenderMap, currentUser) {
+                                        val sender = lastMessageSenderMap[conversation.email]
+                                        if (sender != null) {
+                                            sender == currentUser?.email
+                                        } else {
+                                            val currentEmail = currentUser?.email
+                                            if (currentEmail != null) {
+                                                val chatKey = if (conversation.email.startsWith("group_")) conversation.email else listOf(currentEmail, conversation.email).sorted().joinToString("__")
+                                                LocalStorage.getLocalMessages(context, chatKey).lastOrNull()?.senderEmail == currentEmail
+                                            } else {
+                                                false
+                                            }
+                                        }
+                                    }
+
                                     UserItemRow(
                                         user = conversation,
                                         unreadCount = unread,
@@ -1195,6 +1256,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         verifiedColor = if (isGrp) null else premiumVerifiedColors[conversation.email],
                                         groupMembersList = groupMembersList,
                                         isNewUser = false,
+                                        isLastMessageOwn = isLastMessageOwn,
                                         onSelect = {
                                             if (isGrp) {
                                                 viewModel.selectChatUser(conversation)
@@ -1251,6 +1313,21 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         allActiveUsers.find { it.email.lowercase() == email.lowercase() } ?: User(email = email, name = email.split("@")[0], photoUrl = "")
                                     }
 
+                                    val isLastMessageOwn = remember(group.email, lastMessageSenderMap, currentUser) {
+                                        val sender = lastMessageSenderMap[group.email]
+                                        if (sender != null) {
+                                            sender == currentUser?.email
+                                        } else {
+                                            val currentEmail = currentUser?.email
+                                            if (currentEmail != null) {
+                                                val chatKey = if (group.email.startsWith("group_")) group.email else listOf(currentEmail, group.email).sorted().joinToString("__")
+                                                LocalStorage.getLocalMessages(context, chatKey).lastOrNull()?.senderEmail == currentEmail
+                                            } else {
+                                                false
+                                            }
+                                        }
+                                    }
+
                                     UserItemRow(
                                         user = group,
                                         unreadCount = unread,
@@ -1258,6 +1335,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         verifiedColor = null,
                                         groupMembersList = groupMembersList,
                                         isUprooted = top4RecentEmails.contains(group.email),
+                                        isLastMessageOwn = isLastMessageOwn,
                                         onSelect = {
                                             viewModel.selectChatUser(group)
                                         },
@@ -1292,6 +1370,20 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                             LazyColumn(modifier = Modifier.fillMaxSize()) {
                                 items(sortedRecents) { user ->
                                     val unread = unreadCounts[user.email] ?: 0
+                                    val isLastMessageOwn = remember(user.email, lastMessageSenderMap, currentUser) {
+                                        val sender = lastMessageSenderMap[user.email]
+                                        if (sender != null) {
+                                            sender == currentUser?.email
+                                        } else {
+                                            val currentEmail = currentUser?.email
+                                            if (currentEmail != null) {
+                                                val chatKey = if (user.email.startsWith("group_")) user.email else listOf(currentEmail, user.email).sorted().joinToString("__")
+                                                LocalStorage.getLocalMessages(context, chatKey).lastOrNull()?.senderEmail == currentEmail
+                                            } else {
+                                                false
+                                            }
+                                        }
+                                    }
                                     UserItemRow(
                                         user = user,
                                         unreadCount = unread,
@@ -1299,6 +1391,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         verifiedColor = premiumVerifiedColors[user.email],
                                         isNewUser = false,
                                         isUprooted = top4RecentEmails.contains(user.email),
+                                        isLastMessageOwn = isLastMessageOwn,
                                         onSelect = {
                                             val lockPass = securedChats[user.email]
                                             if (lockPass != null) {
@@ -2088,7 +2181,8 @@ fun UserItemRow(
     onLongClick: () -> Unit,
     groupMembersList: List<User> = emptyList(),
     isNewUser: Boolean = false,
-    isUprooted: Boolean = false
+    isUprooted: Boolean = false,
+    isLastMessageOwn: Boolean = false
 ) {
     val rowBg = if (unreadCount > 0) {
         Color(0xFF2196F3).copy(alpha = 0.15f)
@@ -2352,6 +2446,14 @@ fun UserItemRow(
                         .background(Color(0xFF2196F3))
                 )
             }
+        } else if (isLastMessageOwn) {
+            // If you send a new SMS, there will be a small dot next to that user on the right side
+            Box(
+                modifier = Modifier
+                    .size(8.dp)
+                    .clip(CircleShape)
+                    .background(Color(0xFF4CAF50)) // Green indicating "sent"
+            )
         }
     }
 }

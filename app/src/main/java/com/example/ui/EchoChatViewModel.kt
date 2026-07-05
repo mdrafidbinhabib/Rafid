@@ -148,6 +148,16 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     private val _lastActiveTimestamps = MutableStateFlow<Map<String, Long>>(emptyMap())
     val lastActiveTimestamps: StateFlow<Map<String, Long>> = _lastActiveTimestamps.asStateFlow()
 
+    private val _lastMessageSenderMap = MutableStateFlow<Map<String, String>>(emptyMap())
+    val lastMessageSenderMap: StateFlow<Map<String, String>> = _lastMessageSenderMap.asStateFlow()
+
+    private val _isViewingHidden = MutableStateFlow(false)
+    val isViewingHidden: StateFlow<Boolean> = _isViewingHidden.asStateFlow()
+
+    fun setViewingHidden(viewing: Boolean) {
+        _isViewingHidden.value = viewing
+    }
+
     private val _chatSeenMap = MutableStateFlow<Map<String, Long>>(emptyMap())
     val chatSeenMap: StateFlow<Map<String, Long>> = _chatSeenMap.asStateFlow()
 
@@ -526,13 +536,15 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 val currentChat = _currentChatUser.value
                 val now = System.currentTimeMillis()
                 
-                if (currentChat != null) {
-                    loadMessagesForConversation(currentChat.email)
-                }
-                
-                if (now - lastAllUsersLoad >= 5000) {
-                    loadAllConversationsAndUsers()
-                    lastAllUsersLoad = now
+                if (!_isViewingHidden.value) {
+                    if (currentChat != null) {
+                        loadMessagesForConversation(currentChat.email)
+                    }
+                    
+                    if (now - lastAllUsersLoad >= 5000) {
+                        loadAllConversationsAndUsers()
+                        lastAllUsersLoad = now
+                    }
                 }
                 
                 // If a chat is open, poll very fast (every 1200ms) for a real-time experience!
@@ -553,17 +565,19 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 val now = System.currentTimeMillis()
                 val currentChat = _currentChatUser.value
                 
-                // Fast online ping
-                updateFirebaseOnline("online")
-                
-                if (now - lastSlowSync >= 5000) {
-                    checkActiveSessionConflict(user)
-                    pollPairRequestsAndRecoveryCode(user)
-                    lastSlowSync = now
+                if (!_isViewingHidden.value) {
+                    // Fast online ping
+                    updateFirebaseOnline("online")
+                    
+                    if (now - lastSlowSync >= 5000) {
+                        checkActiveSessionConflict(user)
+                        pollPairRequestsAndRecoveryCode(user)
+                        lastSlowSync = now
+                    }
+                    
+                    // Always poll and sync statuses
+                    pollAndSyncFirebaseStatuses()
                 }
-                
-                // Always poll and sync statuses
-                pollAndSyncFirebaseStatuses()
                 
                 // If a chat is open, poll statuses/typing every 1200ms for instant typing indicators!
                 val dynamicDelay = if (currentChat != null) 1200L else 5000L
@@ -762,6 +776,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                         }
                     }
 
+                    val lastMsgsSenderMap = mutableMapOf<String, String>()
                     rawMessages.forEach { msg ->
                         val parts = msg.getParticipantsList()
                         if (parts.size == 2 && parts.contains(current.email)) {
@@ -777,6 +792,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                                 if (ts > (timestampsMap[other] ?: 0L)) {
                                     timestampsMap[other] = ts
                                     lastMsgsMap[other] = msg.message
+                                    lastMsgsSenderMap[other] = msg.sender ?: ""
                                 }
                             }
                         }
@@ -845,6 +861,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                         _groupCreators.value = groupCreators
                         _groupSubAdmins.value = groupSubAdmins
                         _lastActiveTimestamps.value = activityMap
+                        _lastMessageSenderMap.value = lastMsgsSenderMap
                     }
                 } else {
                     if (_allUsers.value.isEmpty()) {
@@ -994,6 +1011,12 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     withContext(Dispatchers.Main) {
                         _messages.value = groupMsgs
                         _chatLoading.value = false
+                        val lastGrpMsg = groupMsgs.lastOrNull()
+                        if (lastGrpMsg != null) {
+                            val updatedMap = _lastMessageSenderMap.value.toMutableMap()
+                            updatedMap[otherEmail] = lastGrpMsg.senderEmail
+                            _lastMessageSenderMap.value = updatedMap
+                        }
                     }
                     fetchPollVotes()
                     markMessagesSeenForOther(otherEmail)
@@ -1078,6 +1101,12 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
                 withContext(Dispatchers.Main) {
                     _messages.value = finalMessages
+                    val lastPrivateMsg = finalMessages.lastOrNull()
+                    if (lastPrivateMsg != null) {
+                        val updatedMap = _lastMessageSenderMap.value.toMutableMap()
+                        updatedMap[otherEmail] = lastPrivateMsg.senderEmail
+                        _lastMessageSenderMap.value = updatedMap
+                    }
                 }
 
                 // Sync seen read receipt if current chat is active
@@ -1096,7 +1125,14 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     msg.copy(isOwn = correctIsOwn)
                 }
                 withContext(Dispatchers.Main) {
-                    _messages.value = mappedCached.ifEmpty { getMockMessagesFor(current.email, otherEmail) }
+                    val finalCached = mappedCached.ifEmpty { getMockMessagesFor(current.email, otherEmail) }
+                    _messages.value = finalCached
+                    val lastCachedMsg = finalCached.lastOrNull()
+                    if (lastCachedMsg != null) {
+                        val updatedMap = _lastMessageSenderMap.value.toMutableMap()
+                        updatedMap[otherEmail] = lastCachedMsg.senderEmail
+                        _lastMessageSenderMap.value = updatedMap
+                    }
                 }
             } finally {
                 _chatLoading.value = false
@@ -1242,6 +1278,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             } finally {
                 withContext(Dispatchers.Main) {
                     _isSending.value = false
+                    val updatedSenderMap = _lastMessageSenderMap.value.toMutableMap()
+                    updatedSenderMap[chatUser.email] = current.email
+                    _lastMessageSenderMap.value = updatedSenderMap
                 }
             }
         }
