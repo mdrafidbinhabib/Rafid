@@ -4571,238 +4571,249 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                     }
 
                     "appearance" -> {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
-                            Text("Dark Theme (রাত্রিকালীন মোড)")
-                            Switch(checked = isDarkMode, onCheckedChange = { viewModel.setDarkMode(it) })
-                        }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text("Dark Theme (রাত্রিকালীন মোড)")
+                                Switch(checked = isDarkMode, onCheckedChange = { viewModel.setDarkMode(it) })
+                            }
 
-                        Spacer(modifier = Modifier.height(12.dp))
+                            Text("অ্যাপের ব্যাকগ্রাউন্ড থিম নির্বাচন করুণঃ", fontWeight = FontWeight.SemiBold)
 
-                        Text("অ্যাপের ব্যাকগ্রাউন্ড থিম নির্বাচন করুণঃ", fontWeight = FontWeight.SemiBold)
-                        Spacer(modifier = Modifier.height(8.dp))
-
-                        // Render color buttons
-                        val themes = listOf("default", "sunset", "ocean", "forest", "midnight", "neon", "warm", "rose")
-                        Column {
-                            themes.chunked(4).forEach { row ->
-                                Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
-                                ) {
-                                    row.forEach { t ->
-                                        Box(
-                                            modifier = Modifier
-                                                .weight(1f)
-                                                .height(36.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(getThemeGradient(t))
-                                                .clickable { viewModel.applyTheme(t) }
-                                                .border(
-                                                    width = if (currentTheme == t) 2.dp else 0.dp,
-                                                    color = Color.White,
-                                                    shape = RoundedCornerShape(8.dp)
-                                                )
-                                        )
+                            // Render color buttons
+                            val themes = listOf("default", "sunset", "ocean", "forest", "midnight", "neon", "warm", "rose")
+                            Column {
+                                themes.chunked(4).forEach { row ->
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    ) {
+                                        row.forEach { t ->
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .height(36.dp)
+                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .background(getThemeGradient(t))
+                                                    .clickable { viewModel.applyTheme(t) }
+                                                    .border(
+                                                        width = if (currentTheme == t) 2.dp else 0.dp,
+                                                        color = Color.White,
+                                                        shape = RoundedCornerShape(8.dp)
+                                                    )
+                                            )
+                                        }
                                     }
+                                    Spacer(modifier = Modifier.height(8.dp))
                                 }
-                                Spacer(modifier = Modifier.height(8.dp))
                             }
                         }
                     }
 
                     "pair" -> {
-                        // Recover Pairing tab logic
-                        if (partnerEmail.isNotEmpty()) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .background(Color.Green.copy(alpha = 0.1f))
-                                    .padding(12.dp)
-                            ) {
-                                Text("✅ আপনি Paired আছেন!", fontWeight = FontWeight.Bold)
-                                Text("অংশীদারঃ $partnerName ($partnerEmail)")
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Button(
-                                    onClick = {
-                                        viewModel.removePair("1234", onSuccess = {}, onError = {})
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            // Recover Pairing tab logic
+                            if (partnerEmail.isNotEmpty()) {
+                                Column(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .background(Color.Green.copy(alpha = 0.1f))
+                                        .padding(12.dp)
                                 ) {
-                                    Text("Pair সরান")
+                                    Text("✅ আপনি Paired আছেন!", fontWeight = FontWeight.Bold)
+                                    Text("অংশীদারঃ $partnerName ($partnerEmail)")
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                    Button(
+                                        onClick = {
+                                            viewModel.removePair("1234", onSuccess = {}, onError = {})
+                                        },
+                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                                    ) {
+                                        Text("Pair সরান")
+                                    }
                                 }
-                            }
-                        } else {
-                            if (signalPairRequest != null) {
-                                Card(
-                                    modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
-                                    ),
-                                    shape = RoundedCornerShape(12.dp)
-                                ) {
-                                    Column(modifier = Modifier.padding(16.dp)) {
-                                        Text(
-                                            text = "💞 ইনকামিং পেয়ার অনুরোধ!",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 15.sp,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Spacer(modifier = Modifier.height(4.dp))
-                                        Text(
-                                            text = "${signalPairRequest!!.fromName} (${signalPairRequest!!.fromEmail}) আপনাকে পেয়ার করার অনুরোধ পাঠিয়েছেন। সংযোগ সম্পন্ন করতে অংশীদারের কাছ থেকে পাওয়া অস্থায়ী ৬-সংখ্যার কোডটি নিচে লিখুনঃ",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
-                                        )
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        var codeToMatch by remember { mutableStateOf("") }
-                                        OutlinedTextField(
-                                            value = codeToMatch,
-                                            onValueChange = { codeToMatch = it },
-                                            placeholder = { Text("৬-সংখ্যার পেয়ারিং কোড") },
-                                            singleLine = true,
-                                            modifier = Modifier.fillMaxWidth().testTag("pair_code_input")
-                                        )
-                                        Spacer(modifier = Modifier.height(12.dp))
-                                        Row(
-                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Button(
-                                                onClick = {
-                                                    viewModel.acceptPairRequestWithCode(
-                                                        fromEmail = signalPairRequest!!.fromEmail,
-                                                        enteredCode = codeToMatch,
-                                                        onSuccess = {
-                                                            Toast.makeText(context, "সফলভাবে পেয়ার করা হয়েছে!", Toast.LENGTH_SHORT).show()
-                                                        },
-                                                        onError = { err ->
-                                                            Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
-                                                        }
-                                                    )
-                                                },
-                                                modifier = Modifier.testTag("pair_confirm_button")
+                            } else {
+                                if (signalPairRequest != null) {
+                                    Card(
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.4f)
+                                        ),
+                                        shape = RoundedCornerShape(12.dp)
+                                    ) {
+                                        Column(modifier = Modifier.padding(16.dp)) {
+                                            Text(
+                                                text = "💞 ইনকামিং পেয়ার অনুরোধ!",
+                                                fontWeight = FontWeight.Bold,
+                                                fontSize = 15.sp,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "${signalPairRequest!!.fromName} (${signalPairRequest!!.fromEmail}) আপনাকে পেয়ার করার অনুরোধ পাঠিয়েছেন। সংযোগ সম্পন্ন করতে অংশীদারের কাছ থেকে পাওয়া অস্থায়ী ৬-সংখ্যার কোডটি নিচে লিখুনঃ",
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f)
+                                            )
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            var codeToMatch by remember { mutableStateOf("") }
+                                            OutlinedTextField(
+                                                value = codeToMatch,
+                                                onValueChange = { codeToMatch = it },
+                                                placeholder = { Text("৬-সংখ্যার পেয়ারিং কোড") },
+                                                singleLine = true,
+                                                modifier = Modifier.fillMaxWidth().testTag("pair_code_input")
+                                            )
+                                            Spacer(modifier = Modifier.height(12.dp))
+                                            Row(
+                                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                verticalAlignment = Alignment.CenterVertically
                                             ) {
-                                                Text("নিশ্চিত করুন")
-                                            }
-                                            TextButton(
-                                                onClick = {
-                                                    viewModel.respondToPairRequest(signalPairRequest!!.fromEmail, accept = false)
+                                                Button(
+                                                    onClick = {
+                                                        viewModel.acceptPairRequestWithCode(
+                                                            fromEmail = signalPairRequest!!.fromEmail,
+                                                            enteredCode = codeToMatch,
+                                                            onSuccess = {
+                                                                Toast.makeText(context, "সফলভাবে পেয়ার করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                                            },
+                                                            onError = { err ->
+                                                                Toast.makeText(context, err, Toast.LENGTH_SHORT).show()
+                                                            }
+                                                        )
+                                                    },
+                                                    modifier = Modifier.testTag("pair_confirm_button")
+                                                ) {
+                                                    Text("নিশ্চিত করুন")
                                                 }
-                                            ) {
-                                                Text("বাতিল", color = Color.Red)
+                                                TextButton(
+                                                    onClick = {
+                                                        viewModel.respondToPairRequest(signalPairRequest!!.fromEmail, accept = false)
+                                                    }
+                                                ) {
+                                                    Text("বাতিল", color = Color.Red)
+                                                }
                                             }
                                         }
                                     }
+                                    Spacer(modifier = Modifier.height(8.dp))
                                 }
+
+                                Text("অন্য কোনো ব্যবহারকারীকে পেয়ার করার জন্য অনুরোধ পাঠানঃ", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                 Spacer(modifier = Modifier.height(8.dp))
-                            }
+                                var reqMail by remember { mutableStateOf("") }
+                                var pairRequestedEmailNotFound by remember { mutableStateOf<String?>(null) }
+                                var pairRequestErrorMsg by remember { mutableStateOf<String?>(null) }
 
-                            Text("অন্য কোনো ব্যবহারকারীকে পেয়ার করার জন্য অনুরোধ পাঠানঃ", fontSize = 13.sp, fontWeight = FontWeight.Medium)
-                            Spacer(modifier = Modifier.height(8.dp))
-                            var reqMail by remember { mutableStateOf("") }
-                            var pairRequestedEmailNotFound by remember { mutableStateOf<String?>(null) }
-                            var pairRequestErrorMsg by remember { mutableStateOf<String?>(null) }
-
-                            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                                OutlinedTextField(
-                                    value = reqMail,
-                                    onValueChange = { 
-                                        reqMail = it 
-                                        if (it.isEmpty()) {
+                                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    OutlinedTextField(
+                                        value = reqMail,
+                                        onValueChange = { 
+                                            reqMail = it 
+                                            if (it.isEmpty()) {
+                                                pairRequestedEmailNotFound = null
+                                                pairRequestErrorMsg = null
+                                            }
+                                        },
+                                        placeholder = { Text("অংশীদারের ইমেইল...") },
+                                        modifier = Modifier.weight(1f)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Button(onClick = {
+                                        val exists = allActiveUsers.any { it.email.equals(reqMail.trim(), ignoreCase = true) }
+                                        if (!exists) {
+                                            pairRequestedEmailNotFound = reqMail
+                                            pairRequestErrorMsg = "ইমেইলটি নিবন্ধিত নেই!"
+                                        } else {
                                             pairRequestedEmailNotFound = null
                                             pairRequestErrorMsg = null
+                                            viewModel.submitPairRequest(reqMail, onSuccess = {
+                                                Toast.makeText(context, "Pair Request Sent!", Toast.LENGTH_SHORT).show()
+                                            }, onError = {
+                                                pairRequestErrorMsg = it
+                                            })
                                         }
-                                    },
-                                    placeholder = { Text("অংশীদারের ইমেইল...") },
-                                    modifier = Modifier.weight(1f)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Button(onClick = {
-                                    val exists = allActiveUsers.any { it.email.equals(reqMail.trim(), ignoreCase = true) }
-                                    if (!exists) {
-                                        pairRequestedEmailNotFound = reqMail
-                                        pairRequestErrorMsg = "ইমেইলটি নিবন্ধিত নেই!"
-                                    } else {
-                                        pairRequestedEmailNotFound = null
-                                        pairRequestErrorMsg = null
-                                        viewModel.submitPairRequest(reqMail, onSuccess = {
-                                            Toast.makeText(context, "Pair Request Sent!", Toast.LENGTH_SHORT).show()
-                                        }, onError = {
-                                            pairRequestErrorMsg = it
-                                        })
-                                    }
-                                }) {
-                                    Text("অনুরোধ")
-                                }
-                            }
-
-                            if (reqMail.isNotEmpty() && allActiveUsers.any { it.email.equals(reqMail.trim(), ignoreCase = true) }) {
-                                val pairingCode = viewModel.getPairingCode(user?.email ?: "", reqMail)
-                                Spacer(modifier = Modifier.height(10.dp))
-                                Card(
-                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
-                                    shape = RoundedCornerShape(8.dp)
-                                ) {
-                                    Column(modifier = Modifier.padding(10.dp)) {
-                                        Text(
-                                            text = "🤝 আপনার অস্থায়ী পেয়ারিং কোডঃ",
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.primary
-                                        )
-                                        Text(
-                                            text = pairingCode,
-                                            fontWeight = FontWeight.Black,
-                                            fontSize = 20.sp,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            modifier = Modifier.padding(vertical = 4.dp)
-                                        )
-                                        Text(
-                                            text = "সংযোগ সম্পন্ন করতে আপনার অংশীদারকে কোডটি এই সেটিংসে প্রবেশ করাতে বলুন। কোনো অগ্রিম SMS লাগবে না।",
-                                            fontSize = 11.sp,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
-                                        )
+                                    }) {
+                                        Text("অনুরোধ")
                                     }
                                 }
-                            }
 
-                            if (pairRequestedEmailNotFound != null) {
-                                Spacer(modifier = Modifier.height(12.dp))
-                                Card(
-                                    colors = CardDefaults.cardColors(
-                                        containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f)
-                                    ),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.fillMaxWidth()
-                                ) {
-                                    Row(
-                                        modifier = Modifier.padding(12.dp),
-                                        verticalAlignment = Alignment.CenterVertically
+                                if (reqMail.isNotEmpty() && allActiveUsers.any { it.email.equals(reqMail.trim(), ignoreCase = true) }) {
+                                    val pairingCode = viewModel.getPairingCode(user?.email ?: "", reqMail)
+                                    Spacer(modifier = Modifier.height(10.dp))
+                                    Card(
+                                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant),
+                                        shape = RoundedCornerShape(8.dp)
                                     ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.ErrorOutline,
-                                            contentDescription = "Error Contact",
-                                            tint = MaterialTheme.colorScheme.error,
-                                            modifier = Modifier.size(36.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(12.dp))
-                                        Column {
+                                        Column(modifier = Modifier.padding(10.dp)) {
                                             Text(
-                                                text = "ত্রুটিপূর্ণ সংযোগ (Error Contact) ⚠️",
+                                                text = "🤝 আপনার অস্থায়ী পেয়ারিং কোডঃ",
                                                 fontWeight = FontWeight.Bold,
-                                                color = MaterialTheme.colorScheme.onErrorContainer,
-                                                fontSize = 14.sp
+                                                fontSize = 12.sp,
+                                                color = MaterialTheme.colorScheme.primary
                                             )
-                                            Spacer(modifier = Modifier.height(2.dp))
                                             Text(
-                                                text = "${pairRequestedEmailNotFound} সংযোগ করতে ব্যর্থ হয়েছে!",
-                                                color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f),
-                                                fontSize = 12.sp
+                                                text = pairingCode,
+                                                fontWeight = FontWeight.Black,
+                                                fontSize = 20.sp,
+                                                color = MaterialTheme.colorScheme.primary,
+                                                modifier = Modifier.padding(vertical = 4.dp)
                                             )
+                                            Text(
+                                                text = "সংযোগ সম্পন্ন করতে আপনার অংশীদারকে কোডটি এই সেটিংসে প্রবেশ করাতে বলুন। কোনো অগ্রিম SMS লাগবে না।",
+                                                fontSize = 11.sp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                            )
+                                        }
+                                    }
+                                }
+
+                                if (pairRequestedEmailNotFound != null) {
+                                    Spacer(modifier = Modifier.height(12.dp))
+                                    Card(
+                                        colors = CardDefaults.cardColors(
+                                            containerColor = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.8f)
+                                        ),
+                                        shape = RoundedCornerShape(12.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        Row(
+                                            modifier = Modifier.padding(12.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Icon(
+                                                imageVector = Icons.Filled.ErrorOutline,
+                                                contentDescription = "Error Contact",
+                                                tint = MaterialTheme.colorScheme.error,
+                                                modifier = Modifier.size(36.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(12.dp))
+                                            Column {
+                                                Text(
+                                                    text = "ত্রুটিপূর্ণ সংযোগ (Error Contact) ⚠️",
+                                                    fontWeight = FontWeight.Bold,
+                                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                                    fontSize = 14.sp
+                                                )
+                                                Spacer(modifier = Modifier.height(2.dp))
+                                                Text(
+                                                    text = "${pairRequestedEmailNotFound} সংযোগ করতে ব্যর্থ হয়েছে!",
+                                                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.7f),
+                                                    fontSize = 12.sp
+                                                )
+                                            }
                                         }
                                     }
                                 }
@@ -4904,7 +4915,9 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                     "language" -> {
                         val appLanguage by viewModel.appLanguage.collectAsState()
                         Column(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState()),
                             verticalArrangement = Arrangement.spacedBy(12.dp)
                         ) {
                             Text(

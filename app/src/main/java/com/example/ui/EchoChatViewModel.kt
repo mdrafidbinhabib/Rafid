@@ -536,15 +536,13 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 val currentChat = _currentChatUser.value
                 val now = System.currentTimeMillis()
                 
-                if (!_isViewingHidden.value) {
-                    if (currentChat != null) {
-                        loadMessagesForConversation(currentChat.email)
-                    }
-                    
-                    if (now - lastAllUsersLoad >= 5000) {
-                        loadAllConversationsAndUsers()
-                        lastAllUsersLoad = now
-                    }
+                if (currentChat != null) {
+                    loadMessagesForConversation(currentChat.email)
+                }
+                
+                if (now - lastAllUsersLoad >= 5000) {
+                    loadAllConversationsAndUsers()
+                    lastAllUsersLoad = now
                 }
                 
                 // If a chat is open, poll very fast (every 1200ms) for a real-time experience!
@@ -565,19 +563,17 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 val now = System.currentTimeMillis()
                 val currentChat = _currentChatUser.value
                 
-                if (!_isViewingHidden.value) {
-                    // Fast online ping
-                    updateFirebaseOnline("online")
-                    
-                    if (now - lastSlowSync >= 5000) {
-                        checkActiveSessionConflict(user)
-                        pollPairRequestsAndRecoveryCode(user)
-                        lastSlowSync = now
-                    }
-                    
-                    // Always poll and sync statuses
-                    pollAndSyncFirebaseStatuses()
+                // Fast online ping
+                updateFirebaseOnline("online")
+                
+                if (now - lastSlowSync >= 5000) {
+                    checkActiveSessionConflict(user)
+                    pollPairRequestsAndRecoveryCode(user)
+                    lastSlowSync = now
                 }
+                
+                // Always poll and sync statuses
+                pollAndSyncFirebaseStatuses()
                 
                 // If a chat is open, poll statuses/typing every 1200ms for instant typing indicators!
                 val dynamicDelay = if (currentChat != null) 1200L else 5000L
@@ -723,9 +719,19 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     val timestampsMap = mutableMapOf<String, Long>()
                     val lastMsgsMap = mutableMapOf<String, String>()
 
-                    // Load conversations_last_activity from Firebase
+                    // Load conversations_last_activity, last_sender, and seen from Firebase
                     val remoteLastActivity = try {
                         FirebaseRestClient.service.getValue("conversations_last_activity") as? Map<*, *>
+                    } catch (e: Exception) {
+                        null
+                    }
+                    val remoteLastSender = try {
+                        FirebaseRestClient.service.getValue("conversations_last_sender") as? Map<*, *>
+                    } catch (e: Exception) {
+                        null
+                    }
+                    val remoteSeen = try {
+                        FirebaseRestClient.service.getValue("seen") as? Map<*, *>
                     } catch (e: Exception) {
                         null
                     }
@@ -855,6 +861,37 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
+                    // Dynamic calculation of unread counts in real-time
+                    val myUserKey = sanitizeId(current.email)
+                    val calculatedUnreads = mutableMapOf<String, Int>()
+                    val allTargetConversations = activeUsers.map { it.email } + parsedGroups.map { it.email }
+                    val currentChat = _currentChatUser.value
+
+                    allTargetConversations.forEach { otherEmail ->
+                        if (currentChat != null && currentChat.email == otherEmail) {
+                            calculatedUnreads[otherEmail] = 0
+                            return@forEach
+                        }
+                        val isGrp = otherEmail.startsWith("group_")
+                        val chatKeySanitized = if (isGrp) sanitizeId(otherEmail) else listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+                        
+                        val lastActivity = (remoteLastActivity?.get(chatKeySanitized) as? Number)?.toLong() ?: 0L
+                        val lastSender = remoteLastSender?.get(chatKeySanitized)?.toString() ?: ""
+                        
+                        if (lastSender.isNotEmpty()) {
+                            lastMsgsSenderMap[otherEmail] = lastSender
+                        }
+                        
+                        val mySeenObj = (remoteSeen?.get(chatKeySanitized) as? Map<*, *>)?.get(myUserKey) as? Map<*, *>
+                        val mySeenTs = (mySeenObj?.get("ts") as? Number)?.toLong() ?: 0L
+                        
+                        if (lastActivity > 0 && lastSender.isNotEmpty() && lastSender.lowercase() != current.email.lowercase()) {
+                            if (lastActivity > mySeenTs) {
+                                calculatedUnreads[otherEmail] = 1
+                            }
+                        }
+                    }
+
                     withContext(Dispatchers.Main) {
                         _myGroups.value = parsedGroups
                         _groupMembers.value = groupMembers
@@ -862,6 +899,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                         _groupSubAdmins.value = groupSubAdmins
                         _lastActiveTimestamps.value = activityMap
                         _lastMessageSenderMap.value = lastMsgsSenderMap
+                        _unreadCounts.value = calculatedUnreads
+                        LocalStorage.saveUnreadCounts(context, calculatedUnreads)
                     }
                 } else {
                     if (_allUsers.value.isEmpty()) {
@@ -1072,6 +1111,17 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     0L
                 }
 
+                // Delete our own messages from Supabase if they are seen by the partner
+                ownMsgs.filter { it.timestampMs <= partnerSeenTs }.forEach { msg ->
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            SupabaseRestClient.service.deleteValue("messages/$chatKey/${msg.id}")
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                }
+
                 val finalMessages = (updatedCachedLocal + ownMsgs)
                     .distinctBy { it.id }
                     .map { msg ->
@@ -1260,13 +1310,15 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 )
                 SupabaseRestClient.service.setValue("messages/$chatKey/$msgId", msgMap)
 
-                // Set last active timestamp on Firebase
+                // Set last active timestamp and last sender on Firebase
                 val sanitizedChatId = sanitizeId(chatUser.email)
                 try {
                     FirebaseRestClient.service.setValue("conversations_last_activity/$sanitizedChatId", System.currentTimeMillis())
+                    FirebaseRestClient.service.setValue("conversations_last_sender/$sanitizedChatId", current.email)
                     if (!isGroup) {
                         val mutualChatKey = listOf(current.email, chatUser.email).sorted().map(::sanitizeId).joinToString("__")
                         FirebaseRestClient.service.setValue("conversations_last_activity/$mutualChatKey", System.currentTimeMillis())
+                        FirebaseRestClient.service.setValue("conversations_last_sender/$mutualChatKey", current.email)
                     }
                 } catch(e: Exception) {}
 
