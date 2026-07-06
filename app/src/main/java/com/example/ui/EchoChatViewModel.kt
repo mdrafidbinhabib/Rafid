@@ -12,6 +12,12 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import org.json.JSONArray
+import org.json.JSONObject
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -65,6 +71,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     private val _partnerOnlineStatus = MutableStateFlow("offline") // "online" | "away" | "offline"
     val partnerOnlineStatus: StateFlow<String> = _partnerOnlineStatus.asStateFlow()
+
+    private val _usersOnlineStatuses = MutableStateFlow<Map<String, String>>(emptyMap())
+    val usersOnlineStatuses: StateFlow<Map<String, String>> = _usersOnlineStatuses.asStateFlow()
 
     // Offline Persistent Configurations
     private val _isDarkMode = MutableStateFlow(LocalStorage.isDarkMode(context))
@@ -685,14 +694,27 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                             mappedUser.copy(name = baseName)
                         }
                     }
-                    _allUsers.value = activeUsers
+                    val aiUser = User(
+                        email = "ai_assistant@echochat.com",
+                        name = "Echo AI+",
+                        photoUrl = "https://images.unsplash.com/photo-1618005182384-a83a8bd57fbe?w=150",
+                        statusMessage = "আমি আপনার এ আই সহকারী। পাসওয়ার্ড পরিবর্তন, রিপোর্ট এবং অন্যান্য বিষয়ে সাহায্য করতে পারি।"
+                    )
+                    val activeUsersWithAI = activeUsers + aiUser
+                    _allUsers.value = activeUsersWithAI
+
+                    // Ensure AI Assistant is always in recent chats list
+                    recentEmails.add("ai_assistant@echochat.com")
+                    if (timestampsMap["ai_assistant@echochat.com"] == null) {
+                        timestampsMap["ai_assistant@echochat.com"] = System.currentTimeMillis()
+                    }
 
                     // Sync verified premium users from Firebase Database dynamically
                     try {
                         val remoteVerified = FirebaseRestClient.service.getValue("verified_users") as? Map<*, *>
                         if (remoteVerified != null) {
                             val mergedVerifiedColors = LocalStorage.getVerifiedUsers(context).toMutableMap()
-                            val allLocalAndActiveEmails = activeUsers.map { it.email }.toMutableList()
+                            val allLocalAndActiveEmails = activeUsersWithAI.map { it.email }.toMutableList()
                             allLocalAndActiveEmails.add(current.email)
 
                             remoteVerified.forEach { (k, v) ->
@@ -820,7 +842,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     }
 
                     // Map emails to real users
-                    val mappedRecents = activeUsers.filter { u ->
+                    val mappedRecents = activeUsersWithAI.filter { u ->
                         recentEmails.contains(u.email) || lastMsgsMap.containsKey(u.email)
                     }.sortedByDescending { u ->
                         timestampsMap[u.email] ?: 0L
@@ -1280,6 +1302,16 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         _lastActiveTimestamps.value = updatedMap
 
         viewModelScope.launch(Dispatchers.IO) {
+            // First check if the content is offensive or contains adult language via Gemini API
+            val isOffensive = checkIsOffensiveContent(text)
+            if (isOffensive) {
+                withContext(Dispatchers.Main) {
+                    _offensiveWarningMessage.value = "⚠️ সতর্কতা: আপনার পাঠানো এসএমএস-এ গালিগালাজ বা এডাল্ট শব্দ শনাক্ত করা হয়েছে। এই ধরণের কন্টেন্ট পাঠানো সম্পূর্ণ নিষিদ্ধ।"
+                    _isSending.value = false
+                }
+                return@launch
+            }
+
             val chatKey = if (isGroup) chatUser.email else listOf(current.email, chatUser.email).sorted().joinToString("__")
 
             val msgId = "msg_" + System.currentTimeMillis() + "_" + (1000..9999).random()
@@ -1310,6 +1342,15 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             // Save to local host immediately
             val updatedLocal = (LocalStorage.getLocalMessages(context, chatKey) + localMsg)
             LocalStorage.saveLocalMessages(context, chatKey, updatedLocal)
+
+            // Check if chatUser ends with "+" (AI chat assistant)
+            if (chatUser.name.trim().endsWith("+")) {
+                withContext(Dispatchers.Main) {
+                    _isSending.value = false
+                }
+                handleAiChatResponse(text, chatKey, chatUser)
+                return@launch
+            }
 
             try {
                 // Post to Supabase
@@ -1440,46 +1481,66 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     private suspend fun pollAndSyncFirebaseStatuses() {
         val current = _currentUser.value ?: return
-        val chatUser = _currentChatUser.value ?: return
-        val chatKey = listOf(current.email, chatUser.email).sorted().map(::sanitizeId).joinToString("__")
         val userKey = sanitizeId(current.email)
+        val chatUser = _currentChatUser.value
 
         // 1. Sync Typing Partner Status
-        try {
-            val typingData = FirebaseRestClient.service.getValue("typing/$chatKey") as? Map<*, *>
-            if (typingData != null) {
-                val others = typingData.filterKeys { it != userKey }
-                val now = System.currentTimeMillis()
-                val activeTyping = others.values.mapNotNull { it as? Map<*, *> }
-                    .firstOrNull { (now - ((it["ts"] as? Number)?.toLong() ?: 0L)) < 5000 }
-                if (activeTyping != null) {
-                    _typingPartnerName.value = (activeTyping["name"] as? String) ?: "Someone"
+        if (chatUser != null) {
+            val chatKey = listOf(current.email, chatUser.email).sorted().map(::sanitizeId).joinToString("__")
+            try {
+                val typingData = FirebaseRestClient.service.getValue("typing/$chatKey") as? Map<*, *>
+                if (typingData != null) {
+                    val others = typingData.filterKeys { it != userKey }
+                    val now = System.currentTimeMillis()
+                    val activeTyping = others.values.mapNotNull { it as? Map<*, *> }
+                        .firstOrNull { (now - ((it["ts"] as? Number)?.toLong() ?: 0L)) < 5000 }
+                    if (activeTyping != null) {
+                        _typingPartnerName.value = (activeTyping["name"] as? String) ?: "Someone"
+                    } else {
+                        _typingPartnerName.value = null
+                    }
                 } else {
                     _typingPartnerName.value = null
                 }
-            } else {
+            } catch (e: Exception) {
                 _typingPartnerName.value = null
             }
-        } catch (e: Exception) {
+        } else {
             _typingPartnerName.value = null
         }
 
-        // 2. Sync Online Partner Status
+        // 2. Sync Online Statuses of All Users
         try {
-            val onlinePartnerKey = sanitizeId(chatUser.email)
-            val onlineVal = FirebaseRestClient.service.getValue("online/$onlinePartnerKey") as? Map<*, *>
-            if (onlineVal != null) {
-                val status = (onlineVal["status"] as? String) ?: "offline"
-                val ts = (onlineVal["ts"] as? Number)?.toLong() ?: 0L
-                if (System.currentTimeMillis() - ts > 120000) {
-                    _partnerOnlineStatus.value = "offline"
+            val allOnlineMap = FirebaseRestClient.service.getValue("online") as? Map<*, *>
+            if (allOnlineMap != null) {
+                val now = System.currentTimeMillis()
+                val statuses = mutableMapOf<String, String>()
+                allOnlineMap.forEach { (key, value) ->
+                    val userK = key?.toString() ?: return@forEach
+                    val valMap = value as? Map<*, *> ?: return@forEach
+                    val status = (valMap["status"] as? String) ?: "offline"
+                    val ts = (valMap["ts"] as? Number)?.toLong() ?: 0L
+                    if (now - ts <= 120000) {
+                        statuses[userK] = status
+                    } else {
+                        statuses[userK] = "offline"
+                    }
+                }
+                _usersOnlineStatuses.value = statuses
+
+                // Also update the active partner online status
+                if (chatUser != null) {
+                    val partnerOnlineKey = sanitizeId(chatUser.email)
+                    _partnerOnlineStatus.value = statuses[partnerOnlineKey] ?: "offline"
                 } else {
-                    _partnerOnlineStatus.value = status
+                    _partnerOnlineStatus.value = "offline"
                 }
             } else {
+                _usersOnlineStatuses.value = emptyMap()
                 _partnerOnlineStatus.value = "offline"
             }
         } catch (e: Exception) {
+            _usersOnlineStatuses.value = emptyMap()
             _partnerOnlineStatus.value = "offline"
         }
     }
@@ -2485,7 +2546,161 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private fun sanitizeId(email: String): String {
+    // Offensive Warning State
+    private val _offensiveWarningMessage = MutableStateFlow<String?>(null)
+    val offensiveWarningMessage: StateFlow<String?> = _offensiveWarningMessage.asStateFlow()
+
+    fun dismissOffensiveWarning() {
+        _offensiveWarningMessage.value = null
+    }
+
+    // Call Gemini REST API
+    suspend fun callGeminiAPI(prompt: String, systemInstruction: String? = null): String = withContext(Dispatchers.IO) {
+        val apiKey = BuildConfig.GEMINI_API_KEY
+        if (apiKey.isEmpty() || apiKey == "MY_GEMINI_API_KEY") {
+            return@withContext "Error: API Key is not configured."
+        }
+        
+        val url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=$apiKey"
+        
+        val rootJson = JSONObject()
+        
+        val contentsArray = org.json.JSONArray()
+        val contentObj = JSONObject()
+        val partsArray = org.json.JSONArray()
+        val partObj = JSONObject()
+        partObj.put("text", prompt)
+        partsArray.put(partObj)
+        contentObj.put("parts", partsArray)
+        contentsArray.put(contentObj)
+        rootJson.put("contents", contentsArray)
+        
+        if (systemInstruction != null) {
+            val sysObj = JSONObject()
+            val sysParts = org.json.JSONArray()
+            val sysPartObj = JSONObject()
+            sysPartObj.put("text", systemInstruction)
+            sysParts.put(sysPartObj)
+            sysObj.put("parts", sysParts)
+            rootJson.put("systemInstruction", sysObj)
+        }
+        
+        val mediaType = "application/json; charset=utf-8".toMediaType()
+        val requestBody = rootJson.toString().toRequestBody(mediaType)
+        
+        val request = Request.Builder()
+            .url(url)
+            .post(requestBody)
+            .build()
+            
+        val client = OkHttpClient.Builder()
+            .connectTimeout(30, TimeUnit.SECONDS)
+            .readTimeout(30, TimeUnit.SECONDS)
+            .build()
+            
+        try {
+            client.newCall(request).execute().use { response ->
+                if (!response.isSuccessful) {
+                    return@withContext "Error: ${response.code} ${response.message}"
+                }
+                val bodyStr = response.body?.string() ?: return@withContext "Error: Empty response"
+                val json = JSONObject(bodyStr)
+                val candidates = json.optJSONArray("candidates")
+                val firstCandidate = candidates?.optJSONObject(0)
+                val content = firstCandidate?.optJSONObject("content")
+                val parts = content?.optJSONArray("parts")
+                val text = parts?.optJSONObject(0)?.optString("text")
+                text ?: "No text returned."
+            }
+        } catch (e: Exception) {
+            "Error: ${e.message}"
+        }
+    }
+
+    // Content Moderation check
+    suspend fun checkIsOffensiveContent(text: String): Boolean {
+        val systemInstruction = """
+            You are a content moderation AI. Analyze the user's text for any adult content, vulgarity, profanity, offensive language, or abuse in Bengali or English.
+            Respond with exactly "SAFE" if the text is safe and appropriate.
+            Respond with exactly "OFFENSIVE" if the text contains adult language, profanity, vulgarity, abuse, or offensive content.
+            Do not include any other text, explanations, or formatting. Only output "SAFE" or "OFFENSIVE".
+        """.trimIndent()
+        
+        return try {
+            val res = callGeminiAPI(text, systemInstruction)
+            res.trim().uppercase() == "OFFENSIVE"
+        } catch (e: Exception) {
+            false
+        }
+    }
+
+    // Report User implementation
+    fun reportUser(reportedEmail: String, reason: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        val current = _currentUser.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val reportId = "report_" + System.currentTimeMillis()
+                val reportData = mapOf(
+                    "id" to reportId,
+                    "reporter" to current.email,
+                    "reported" to reportedEmail,
+                    "reason" to reason,
+                    "timestamp" to System.currentTimeMillis()
+                )
+                FirebaseRestClient.service.setValue("reports/$reportId", reportData)
+                withContext(Dispatchers.Main) {
+                    onSuccess()
+                }
+            } catch (e: Exception) {
+                withContext(Dispatchers.Main) {
+                    onError("রিপোর্ট সাবমিট করতে সমস্যা হয়েছে: ${e.message}")
+                }
+            }
+        }
+    }
+
+    // Handle AI Chat Response
+    private suspend fun handleAiChatResponse(userMsg: String, chatKey: String, chatUser: User) {
+        val current = _currentUser.value ?: return
+        
+        val systemInstruction = """
+            You are Echo AI, a highly capable Bengali AI assistant inside the EchoChat application.
+            The user is chatting with you. You can help them with various app features such as:
+            1. Password Change (পাসওয়ার্ড পরিবর্তন)
+            2. Report a User (ইউজার রিপোর্ট)
+            3. Forget Password (পাসওয়ার্ড ফরগেট)
+            
+            Tell them they can also trigger these actions directly by clicking the quick action buttons at the top of this chat screen!
+            
+            Always reply politely in Bengali. Keep your responses engaging, friendly, and helpful.
+        """.trimIndent()
+        
+        val prompt = "User says: $userMsg"
+        
+        val responseText = try {
+            callGeminiAPI(prompt, systemInstruction)
+        } catch (e: Exception) {
+            "দুঃখিত, আমি এই মুহূর্তে উত্তর দিতে পারছি না। অনুগ্রহ করে আবার চেষ্টা করুন।"
+        }
+        
+        val aiMsgId = "msg_" + System.currentTimeMillis() + "_" + (1000..9999).random()
+        val aiMsg = ChatMessage(
+            id = aiMsgId,
+            senderName = chatUser.name,
+            senderEmail = chatUser.email,
+            text = responseText,
+            timestampMs = System.currentTimeMillis(),
+            isOwn = false,
+            isLocal = false
+        )
+        
+        val currentLocal = LocalStorage.getLocalMessages(context, chatKey)
+        LocalStorage.saveLocalMessages(context, chatKey, currentLocal + aiMsg)
+        
+        loadMessagesForConversation(chatUser.email)
+    }
+
+    fun sanitizeId(email: String): String {
         return email.lowercase().replace(Regex("[.#$\\[\\]]"), "_")
     }
 }

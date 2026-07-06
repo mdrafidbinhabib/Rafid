@@ -723,6 +723,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     val premiumVerifiedColors by viewModel.premiumVerifiedColors.collectAsState()
     val hiddenChats by viewModel.hiddenChats.collectAsState()
     val lastMessageSenderMap by viewModel.lastMessageSenderMap.collectAsState()
+    val usersOnlineStatuses by viewModel.usersOnlineStatuses.collectAsState()
 
     val hasUnreadMessages = remember(unreadCounts) { unreadCounts.values.any { it > 0 } }
     val hasUnreadHiddenMessages = remember(unreadCounts, hiddenChats) { hiddenChats.keys.any { email -> (unreadCounts[email] ?: 0) > 0 } }
@@ -1153,6 +1154,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         isSecured = securedChats.containsKey(user.email),
                                         verifiedColor = premiumVerifiedColors[user.email],
                                         isLastMessageOwn = isLastMessageOwn,
+                                        status = usersOnlineStatuses[viewModel.sanitizeId(user.email)] ?: "offline",
                                         onSelect = {
                                             val lockPass = securedChats[user.email]
                                             if (lockPass != null) {
@@ -1238,6 +1240,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         groupMembersList = groupMembersList,
                                         isNewUser = false,
                                         isLastMessageOwn = isLastMessageOwn,
+                                        status = if (isGrp) "offline" else (usersOnlineStatuses[viewModel.sanitizeId(conversation.email)] ?: "offline"),
                                         onSelect = {
                                             if (isGrp) {
                                                 viewModel.selectChatUser(conversation)
@@ -1373,6 +1376,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         isNewUser = false,
                                         isUprooted = top4RecentEmails.contains(user.email),
                                         isLastMessageOwn = isLastMessageOwn,
+                                        status = usersOnlineStatuses[viewModel.sanitizeId(user.email)] ?: "offline",
                                         onSelect = {
                                             val lockPass = securedChats[user.email]
                                             if (lockPass != null) {
@@ -2127,7 +2131,8 @@ fun UserItemRow(
     groupMembersList: List<User> = emptyList(),
     isNewUser: Boolean = false,
     isUprooted: Boolean = false,
-    isLastMessageOwn: Boolean = false
+    isLastMessageOwn: Boolean = false,
+    status: String = "offline"
 ) {
     val rowBg = if (unreadCount > 0) {
         Color(0xFF2196F3).copy(alpha = 0.15f)
@@ -2207,8 +2212,6 @@ fun UserItemRow(
             }
 
             // Online status indicator dot representation
-            // We simulate online with our getOnlineStatus logic matching DOM hashes
-            val status = getSimulatedOnlineStatus(user.email)
             Box(
                 modifier = Modifier
                     .size(12.dp)
