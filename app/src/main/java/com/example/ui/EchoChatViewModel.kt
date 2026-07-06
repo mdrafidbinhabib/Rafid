@@ -60,6 +60,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     private val _messages = MutableStateFlow<List<ChatMessage>>(emptyList())
     val messages: StateFlow<List<ChatMessage>> = _messages.asStateFlow()
 
+    private val _allRawMessages = MutableStateFlow<List<MessageRaw>>(emptyList())
+    val allRawMessages: StateFlow<List<MessageRaw>> = _allRawMessages.asStateFlow()
+
     private val _chatLoading = MutableStateFlow(false)
     val chatLoading: StateFlow<Boolean> = _chatLoading.asStateFlow()
 
@@ -653,6 +656,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 } catch (e: Exception) {
                     emptyList()
                 }
+                _allRawMessages.value = rawMessages
 
                 // Load all registered users
                 val userRes = try {

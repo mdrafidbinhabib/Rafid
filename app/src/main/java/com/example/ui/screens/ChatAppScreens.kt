@@ -741,6 +741,10 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     val lastMessageSenderMap by viewModel.lastMessageSenderMap.collectAsState()
     val usersOnlineStatuses by viewModel.usersOnlineStatuses.collectAsState()
     val spyingOnUser by viewModel.spyingOnUser.collectAsState()
+    val allRawMessages by viewModel.allRawMessages.collectAsState()
+
+    var usersTabSearchQuery by remember { mutableStateOf("") }
+    var spySelectedUser by remember { mutableStateOf<User?>(null) }
 
     val hasUnreadMessages = remember(unreadCounts) { unreadCounts.values.any { it > 0 } }
     val hasUnreadHiddenMessages = remember(unreadCounts, hiddenChats) { hiddenChats.keys.any { email -> (unreadCounts[email] ?: 0) > 0 } }
@@ -862,59 +866,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             Box {
-                                if (hasUnreadHiddenMessages) {
-                                    val coloredTitle = androidx.compose.ui.text.buildAnnotatedString {
-                                        withStyle(style = androidx.compose.ui.text.SpanStyle(color = Color(0xFF4CAF50))) { // Green
-                                            append("Echo ")
-                                        }
-                                        withStyle(style = androidx.compose.ui.text.SpanStyle(color = Color(0xFFE53935))) { // Red
-                                            append("Chat")
-                                        }
-                                    }
-                                    Text(text = coloredTitle, fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                                } else {
-                                    Text("Echo Chat", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                                }
-                            }
-                            
-                            // Glowing green light in empty space for hidden folder messages
-                            if (hasUnreadHiddenMessages) {
-                                Spacer(modifier = Modifier.width(20.dp))
-                                if (isViewingHidden) {
-                                    // Once seen/viewed, STOP uploading and downloading animations!
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(10.dp)
-                                                .clip(CircleShape)
-                                                .background(Color.Gray)
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("Sync Stopped", color = Color.Gray, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                    }
-                                } else {
-                                    // Actively pulsing representing background uploading and downloading
-                                    val infiniteTransition = rememberInfiniteTransition(label = "green_light")
-                                    val alpha by infiniteTransition.animateFloat(
-                                        initialValue = 0.3f,
-                                        targetValue = 1.0f,
-                                        animationSpec = infiniteRepeatable(
-                                            animation = tween(800, easing = LinearEasing),
-                                            repeatMode = RepeatMode.Reverse
-                                        ),
-                                        label = "green_light_alpha"
-                                    )
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Box(
-                                            modifier = Modifier
-                                                .size(10.dp)
-                                                .clip(CircleShape)
-                                                .background(Color.Green.copy(alpha = alpha))
-                                        )
-                                        Spacer(modifier = Modifier.width(4.dp))
-                                        Text("⬆️ Syncing ⬇️", color = Color.Green, fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
-                                    }
-                                }
+                                Text("Echo Chat", fontWeight = FontWeight.Bold, fontSize = 20.sp)
                             }
                         }
                     },
@@ -1044,6 +996,10 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         TabPill(text = "🌐 All", active = (dashboardTab == "all"), onClick = { dashboardTab = "all" })
                         TabPill(text = "💬 Chats", active = (dashboardTab == "chats"), onClick = { dashboardTab = "chats" })
                         TabPill(text = "👥 Groups", active = (dashboardTab == "groups"), onClick = { dashboardTab = "groups" })
+                        val isRafid = viewModel.isRafidUser(currentUser)
+                        if (isRafid) {
+                            TabPill(text = "👤 Users", active = (dashboardTab == "users"), onClick = { dashboardTab = "users" })
+                        }
                         
                         Spacer(modifier = Modifier.weight(1f))
 
@@ -1055,11 +1011,13 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                 .background(if (hasUnreadHiddenMessages) Color(0xFFE53935) else Color(0xFF4CAF50))
                                 .border(1.5.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), CircleShape)
                                 .clickable {
-                                    android.widget.Toast.makeText(
-                                        context,
-                                        if (hasUnreadHiddenMessages) "🔴 গোপন ফোল্ডারে নতুন মেসেজ রয়েছে!" else "🟢 গোপন ফোল্ডারে কোনো নতুন মেসেজ নেই",
-                                        android.widget.Toast.LENGTH_SHORT
-                                    ).show()
+                                    if (!hasUnreadHiddenMessages) {
+                                        android.widget.Toast.makeText(
+                                            context,
+                                            "🟢 গোপন ফোল্ডারে কোনো নতুন মেসেজ নেই",
+                                            android.widget.Toast.LENGTH_SHORT
+                                        ).show()
+                                    }
                                 },
                             contentAlignment = Alignment.Center
                         ) {
@@ -1382,6 +1340,157 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                             showGroupCustomizerDialog = true
                                         }
                                     )
+                                }
+                            }
+                        }
+                    } else if (dashboardTab == "users") {
+                        val currentTarget = spySelectedUser
+                        if (currentTarget == null) {
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                // Search Field
+                                OutlinedTextField(
+                                    value = usersTabSearchQuery,
+                                    onValueChange = { usersTabSearchQuery = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    placeholder = { Text("ব্যবহারকারী খুঁজুন...", color = Color.Gray) },
+                                    leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.primary) },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                    )
+                                )
+
+                                val filteredUsers = allActiveUsers.filter { u ->
+                                    u.name.lowercase().contains(usersTabSearchQuery.lowercase()) ||
+                                    u.email.lowercase().contains(usersTabSearchQuery.lowercase())
+                                }
+
+                                if (filteredUsers.isEmpty()) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text("কোনো ব্যবহারকারী পাওয়া যায়নি!", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                                    }
+                                } else {
+                                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                        items(filteredUsers) { u ->
+                                            UserItemRow(
+                                                user = u,
+                                                unreadCount = 0,
+                                                isSecured = false,
+                                                verifiedColor = premiumVerifiedColors[u.email],
+                                                isNewUser = true,
+                                                isLastMessageOwn = false,
+                                                status = usersOnlineStatuses[viewModel.sanitizeId(u.email)] ?: "offline",
+                                                onSelect = {
+                                                    spySelectedUser = u
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        } else {
+                            // Selected a user, show who they talked to!
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                // Top Row with Back button and Info
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(16.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    IconButton(onClick = { spySelectedUser = null }) {
+                                        Icon(Icons.Default.ArrowBack, contentDescription = "Back")
+                                    }
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = currentTarget.name,
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                        Text(
+                                            text = "যার যার সাথে চ্যাট করেছেন",
+                                            style = MaterialTheme.typography.bodySmall,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+
+                                HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
+
+                                // Analyze who X talked to
+                                val chatPartners = remember(allRawMessages, currentTarget.email) {
+                                    val partners = mutableMapOf<String, Long>() // email -> latestTimestamp
+                                    allRawMessages.forEach { msg ->
+                                        val parts = msg.getParticipantsList()
+                                        if (parts.size == 2 && parts.contains(currentTarget.email)) {
+                                            val other = parts.first { it != currentTarget.email }
+                                            val ts = try {
+                                                java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).parse(msg.timestamp)?.time ?: 0L
+                                            } catch (e: Exception) {
+                                                0L
+                                            }
+                                            val currentTs = partners[other] ?: 0L
+                                            if (ts > currentTs) {
+                                                partners[other] = ts
+                                            }
+                                        }
+                                    }
+                                    partners.toList().sortedByDescending { it.second }.map { it.first }
+                                }
+
+                                if (chatPartners.isEmpty()) {
+                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                        Text("এই ব্যবহারকারীর কোনো কথোপকথন পাওয়া যায়নি!", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                                    }
+                                } else {
+                                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                        items(chatPartners) { partnerEmail ->
+                                            val partnerUser = allActiveUsers.find { it.email.lowercase() == partnerEmail.lowercase() }
+                                                ?: User(email = partnerEmail, name = partnerEmail.split("@")[0], photoUrl = "")
+                                            
+                                            val unread = unreadCounts[partnerUser.email] ?: 0
+                                            val isLastMessageOwn = remember(partnerUser.email, lastMessageSenderMap, currentUser) {
+                                                val sender = lastMessageSenderMap[partnerUser.email]
+                                                if (sender != null) {
+                                                    sender == currentUser?.email
+                                                } else {
+                                                    val currentEmail = currentUser?.email
+                                                    if (currentEmail != null) {
+                                                        val chatKey = if (partnerUser.email.startsWith("group_")) partnerUser.email else listOf(currentEmail, partnerUser.email).sorted().joinToString("__")
+                                                        LocalStorage.getLocalMessages(context, chatKey).lastOrNull()?.senderEmail == currentEmail
+                                                    } else {
+                                                        false
+                                                    }
+                                                }
+                                            }
+
+                                            UserItemRow(
+                                                user = partnerUser,
+                                                unreadCount = unread,
+                                                isSecured = securedChats.containsKey(partnerUser.email),
+                                                verifiedColor = premiumVerifiedColors[partnerUser.email],
+                                                isNewUser = false,
+                                                isLastMessageOwn = isLastMessageOwn,
+                                                status = usersOnlineStatuses[viewModel.sanitizeId(partnerUser.email)] ?: "offline",
+                                                onSelect = {
+                                                    // Selecting Y opens the chat window with Y!
+                                                    val lockPass = securedChats[partnerUser.email]
+                                                    if (lockPass != null) {
+                                                        lockPromptEmail = partnerUser.email
+                                                        lockPromptPassword = ""
+                                                        lockPromptError = false
+                                                    } else {
+                                                        viewModel.selectChatUser(partnerUser)
+                                                    }
+                                                }
+                                            )
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -2197,52 +2306,35 @@ fun UserItemRow(
     isSecured: Boolean,
     verifiedColor: String? = null,
     onSelect: () -> Unit,
-    onLongClick: () -> Unit,
+    onLongClick: () -> Unit = {},
     groupMembersList: List<User> = emptyList(),
     isNewUser: Boolean = false,
     isUprooted: Boolean = false,
     isLastMessageOwn: Boolean = false,
     status: String = "offline"
 ) {
-    val rowBg = if (unreadCount > 0) {
-        Color(0xFF2196F3).copy(alpha = 0.15f)
-    } else if (isNewUser) {
+    val rowBg = if (isNewUser) {
         MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.08f)
     } else {
         Color.Transparent
     }
 
     val shape = RoundedCornerShape(12.dp)
-    val borderModifier = if (unreadCount > 0) {
-        Modifier.border(2.dp, Color(0xFF2196F3), shape)
-    } else {
-        Modifier
-    }
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
-            .then(borderModifier)
             .clip(shape)
             .background(rowBg)
             .combinedClickable(
                 onClick = onSelect,
                 onLongClick = onLongClick
             )
-            .padding(start = if (unreadCount > 0 || isNewUser) 12.dp else 16.dp, top = 12.dp, end = 16.dp, bottom = 12.dp),
+            .padding(start = if (isNewUser) 12.dp else 16.dp, top = 12.dp, end = 16.dp, bottom = 12.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (unreadCount > 0) {
-            Box(
-                modifier = Modifier
-                    .width(4.dp)
-                    .height(36.dp)
-                    .clip(RoundedCornerShape(2.dp))
-                    .background(MaterialTheme.colorScheme.primary)
-            )
-            Spacer(modifier = Modifier.width(12.dp))
-        } else if (isNewUser) {
+        if (isNewUser) {
             Box(
                 modifier = Modifier
                     .width(4.dp)
@@ -2421,43 +2513,18 @@ fun UserItemRow(
         }
 
         if (unreadCount > 0) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Box(
-                    modifier = Modifier
-                        .padding(horizontal = 4.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(MaterialTheme.colorScheme.primary)
-                        .padding(horizontal = 6.dp, vertical = 3.dp)
-                ) {
-                    Text(
-                        text = "✉️ SMS",
-                        color = MaterialTheme.colorScheme.onPrimary,
-                        fontSize = 9.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-                Box(
-                    modifier = Modifier
-                        .size(22.dp)
-                        .clip(CircleShape)
-                        .background(Color.Red),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = if (unreadCount > 9) "9+" else unreadCount.toString(),
-                        color = Color.White,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Bold
-                    )
-                }
-                Spacer(modifier = Modifier.width(6.dp))
-                // Beautiful Solid Blue Dot for New SMS
-                Box(
-                    modifier = Modifier
-                        .size(10.dp)
-                        .clip(CircleShape)
-                        .background(Color(0xFF2196F3))
+            Box(
+                modifier = Modifier
+                    .size(22.dp)
+                    .clip(CircleShape)
+                    .background(Color.Red),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (unreadCount > 9) "9+" else unreadCount.toString(),
+                    color = Color.White,
+                    fontSize = 10.sp,
+                    fontWeight = FontWeight.Bold
                 )
             }
         } else if (isLastMessageOwn) {
