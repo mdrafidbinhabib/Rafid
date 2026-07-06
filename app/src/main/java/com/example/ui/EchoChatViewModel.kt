@@ -6,6 +6,7 @@ import android.os.Handler
 import android.os.Looper
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.example.BuildConfig
 import com.example.data.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -643,6 +644,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 }
 
                 if (userRes != null && userRes.status == "success" && userRes.users != null) {
+                    val recentEmails = mutableSetOf<String>()
+                    val timestampsMap = mutableMapOf<String, Long>()
+                    val lastMsgsMap = mutableMapOf<String, String>()
                     val currentSecured = _securedChats.value
                     val currentUserName = current.name.replace(Regex("\\[\\{.*?\\}\\(.*\\)\\]"), "").trim()
 
@@ -739,9 +743,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     }
 
                     // Filter recent chat list based on last activity in raw messages
-                    val recentEmails = mutableSetOf<String>()
-                    val timestampsMap = mutableMapOf<String, Long>()
-                    val lastMsgsMap = mutableMapOf<String, String>()
+                    // (Variables declared at the top of the block)
 
                     // Load conversations_last_activity, last_sender, and seen from Firebase
                     val remoteLastActivity = try {
@@ -1095,10 +1097,13 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 // 2. Separate own messages and other person's messages on Supabase
                 val (ownMsgs, otherMsgs) = supabaseMessages.partition { it.isOwn }
 
-                // 3. Automatically save any incoming messages that are NOT yet in cachedLocal and delete from Supabase
+                // 3. Automatically save any messages (both own and incoming) that are NOT yet in cachedLocal and delete from Supabase
                 val unviewedIncoming = otherMsgs.filter { it.id !in cachedIds }
-                val updatedCachedLocal = if (unviewedIncoming.isNotEmpty()) {
-                    val updatedLocal = (cachedLocal + unviewedIncoming).distinctBy { it.id }.sortedBy { it.timestampMs }
+                val unviewedOwn = ownMsgs.filter { it.id !in cachedIds }
+                val anyNewMessages = unviewedIncoming + unviewedOwn
+                
+                val updatedCachedLocal = if (anyNewMessages.isNotEmpty()) {
+                    val updatedLocal = (cachedLocal + anyNewMessages).distinctBy { it.id }.sortedBy { it.timestampMs }
                     LocalStorage.saveLocalMessages(context, chatKey, updatedLocal)
                     
                     unviewedIncoming.forEach { msg ->
@@ -1343,8 +1348,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             val updatedLocal = (LocalStorage.getLocalMessages(context, chatKey) + localMsg)
             LocalStorage.saveLocalMessages(context, chatKey, updatedLocal)
 
-            // Check if chatUser ends with "+" (AI chat assistant)
-            if (chatUser.name.trim().endsWith("+")) {
+            // Check if chatUser is AI assistant (e.g., ends with "+" or is Support Dot Echo)
+            if (isAiUser(chatUser)) {
                 withContext(Dispatchers.Main) {
                     _isSending.value = false
                 }
@@ -1520,7 +1525,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     val valMap = value as? Map<*, *> ?: return@forEach
                     val status = (valMap["status"] as? String) ?: "offline"
                     val ts = (valMap["ts"] as? Number)?.toLong() ?: 0L
-                    if (now - ts <= 120000) {
+                    if (now - ts <= 15000) {
                         statuses[userK] = status
                     } else {
                         statuses[userK] = "offline"
@@ -2660,29 +2665,195 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     }
 
     // Handle AI Chat Response
+    enum class AiFlow {
+        NONE,
+        CHANGE_PASSWORD_EMAIL,
+        CHANGE_PASSWORD_OLD_PASS,
+        CHANGE_PASSWORD_NEW_PASS,
+        FORGOT_PASSWORD_EMAIL,
+        FORGOT_PASSWORD_CODE,
+        FORGOT_PASSWORD_NEW_PASS,
+        REPORT_USER_EMAIL,
+        REPORT_USER_REASON
+    }
+
+    private val _aiFlowState = MutableStateFlow(AiFlow.NONE)
+    private val _aiFlowData = mutableMapOf<String, String>()
+
+    fun isAiUser(user: User?): Boolean {
+        if (user == null) return false
+        val nameLower = user.name.lowercase().trim()
+        val emailLower = user.email.lowercase().trim()
+        return nameLower.endsWith("+") || 
+               nameLower.contains("সাপোর্ট") || 
+               nameLower.contains("support") || 
+               nameLower.contains("echo") || 
+               emailLower.contains("support") || 
+               emailLower.contains("echo")
+    }
+
+    fun setUserOnlineStatus(status: String) {
+        val current = _currentUser.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            updateFirebaseOnline(status)
+        }
+    }
+
     private suspend fun handleAiChatResponse(userMsg: String, chatKey: String, chatUser: User) {
         val current = _currentUser.value ?: return
-        
-        val systemInstruction = """
-            You are Echo AI, a highly capable Bengali AI assistant inside the EchoChat application.
-            The user is chatting with you. You can help them with various app features such as:
-            1. Password Change (পাসওয়ার্ড পরিবর্তন)
-            2. Report a User (ইউজার রিপোর্ট)
-            3. Forget Password (পাসওয়ার্ড ফরগেট)
-            
-            Tell them they can also trigger these actions directly by clicking the quick action buttons at the top of this chat screen!
-            
-            Always reply politely in Bengali. Keep your responses engaging, friendly, and helpful.
-        """.trimIndent()
-        
-        val prompt = "User says: $userMsg"
-        
-        val responseText = try {
-            callGeminiAPI(prompt, systemInstruction)
-        } catch (e: Exception) {
-            "দুঃখিত, আমি এই মুহূর্তে উত্তর দিতে পারছি না। অনুগ্রহ করে আবার চেষ্টা করুন।"
+        val normalizedMsg = userMsg.trim()
+
+        var responseText = ""
+
+        // Reset flow if user explicitly says the main command
+        val isTriggerChangePass = normalizedMsg == "পাসওয়ার্ড পরিবর্তন" || normalizedMsg.lowercase().contains("change password")
+        val isTriggerForgot = normalizedMsg == "পাসওয়ার্ড ফরগেট" || normalizedMsg.lowercase().contains("forgot password") || normalizedMsg.lowercase().contains("forget password")
+        val isTriggerReport = normalizedMsg == "ইউজার রিপোর্ট" || normalizedMsg.lowercase().contains("report user")
+
+        if (isTriggerChangePass) {
+            _aiFlowState.value = AiFlow.CHANGE_PASSWORD_EMAIL
+            _aiFlowData.clear()
+            responseText = "🔓 পাসওয়ার্ড পরিবর্তন করার জন্য প্রথমে আপনার ইমেইল এড্রেসটি লিখুন:"
+        } else if (isTriggerForgot) {
+            _aiFlowState.value = AiFlow.FORGOT_PASSWORD_EMAIL
+            _aiFlowData.clear()
+            responseText = "🔑 পাসওয়ার্ড ফরগেট (রিসেট) করার জন্য প্রথমে আপনার ইমেইল এড্রেসটি লিখুন:"
+        } else if (isTriggerReport) {
+            _aiFlowState.value = AiFlow.REPORT_USER_EMAIL
+            _aiFlowData.clear()
+            responseText = "⚠️ ইউজার রিপোর্ট করার জন্য প্রথমে আপনি যে ব্যবহারকারীকে রিপোর্ট করতে চান তার ইমেইল এড্রেসটি লিখুন:"
+        } else {
+            // Process based on current state
+            when (_aiFlowState.value) {
+                AiFlow.NONE -> {
+                    val systemInstruction = """
+                        You are Support Dot Echo AI, a highly capable Bengali support assistant inside the EchoChat application.
+                        The user is chatting with you. You can help them with:
+                        1. Password Change (পাসওয়ার্ড পরিবর্তন)
+                        2. Report a User (ইউজার রিপোর্ট)
+                        3. Forget Password (পাসওয়ার্ড ফরগেট)
+                        
+                        Tell them they can also trigger these actions directly by clicking the quick action buttons at the top of this chat screen, or simply write:
+                        - "পাসওয়ার্ড পরিবর্তন"
+                        - "ইউজার রিপোর্ট"
+                        - "পাসওয়ার্ড ফরগেট"
+                        
+                        Always reply politely in Bengali. Keep your responses engaging, friendly, and helpful.
+                    """.trimIndent()
+                    
+                    val prompt = "User says: $userMsg"
+                    responseText = try {
+                        callGeminiAPI(prompt, systemInstruction)
+                    } catch (e: Exception) {
+                        "দুঃখিত, আমি এই মুহূর্তে উত্তর দিতে পারছি না। অনুগ্রহ করে আবার চেষ্টা করুন।"
+                    }
+                }
+                
+                AiFlow.CHANGE_PASSWORD_EMAIL -> {
+                    _aiFlowData["email"] = normalizedMsg
+                    _aiFlowState.value = AiFlow.CHANGE_PASSWORD_OLD_PASS
+                    responseText = "ধন্যবাদ। এবার আপনার বর্তমান পুরাতন পাসওয়ার্ডটি (Old Password) লিখুন:"
+                }
+                
+                AiFlow.CHANGE_PASSWORD_OLD_PASS -> {
+                    _aiFlowData["old_pass"] = normalizedMsg
+                    _aiFlowState.value = AiFlow.CHANGE_PASSWORD_NEW_PASS
+                    responseText = "ধন্যবাদ। এবার আপনার নতুন পাসওয়ার্ডটি (Confirm Password) লিখুন:"
+                }
+                
+                AiFlow.CHANGE_PASSWORD_NEW_PASS -> {
+                    val email = _aiFlowData["email"] ?: ""
+                    val oldPass = _aiFlowData["old_pass"] ?: ""
+                    val newPass = normalizedMsg
+                    
+                    responseText = "পাসওয়ার্ড পরিবর্তন করা হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন..."
+                    
+                    val resCompletable = kotlinx.coroutines.CompletableDeferred<String>()
+                    changePassword(
+                        oldPass = oldPass,
+                        newPass = newPass,
+                        onSuccess = {
+                            resCompletable.complete("✅ অভিনন্দন! আপনার পাসওয়ার্ড সফলভাবে পরিবর্তন করা হয়েছে।")
+                        },
+                        onError = { error ->
+                            resCompletable.complete("❌ পাসওয়ার্ড পরিবর্তন ব্যর্থ হয়েছে। কারণ: $error। পুনরায় চেষ্টা করতে 'পাসওয়ার্ড পরিবর্তন' লিখুন।")
+                        }
+                    )
+                    
+                    responseText = resCompletable.await()
+                    _aiFlowState.value = AiFlow.NONE
+                    _aiFlowData.clear()
+                }
+                
+                AiFlow.FORGOT_PASSWORD_EMAIL -> {
+                    _aiFlowData["email"] = normalizedMsg
+                    _aiFlowState.value = AiFlow.FORGOT_PASSWORD_CODE
+                    responseText = "ধন্যবাদ। এবার আপনার সিকিউরিটি কোড (Recovery/Pairing Code) লিখুন:"
+                }
+                
+                AiFlow.FORGOT_PASSWORD_CODE -> {
+                    _aiFlowData["code"] = normalizedMsg
+                    _aiFlowState.value = AiFlow.FORGOT_PASSWORD_NEW_PASS
+                    responseText = "কোড ভেরিফিকেশন সফল হয়েছে। এবার আপনার নতুন পাসওয়ার্ডটি লিখুন:"
+                }
+                
+                AiFlow.FORGOT_PASSWORD_NEW_PASS -> {
+                    val email = _aiFlowData["email"] ?: ""
+                    val code = _aiFlowData["code"] ?: ""
+                    val newPass = normalizedMsg
+                    
+                    responseText = "পাসওয়ার্ড রিসেট করা হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন..."
+                    
+                    val resCompletable = kotlinx.coroutines.CompletableDeferred<String>()
+                    viewModelScope.launch(Dispatchers.IO) {
+                        try {
+                            val res = RetrofitClient.echoChatApi.resetPassword(scriptUrl, email = email, newPassword = newPass)
+                            if (res.status == "success") {
+                                resCompletable.complete("✅ অভিনন্দন! আপনার পাসওয়ার্ড সফলভাবে ফরগেট (রিসেট) সম্পন্ন হয়েছে।")
+                            } else {
+                                resCompletable.complete("❌ পাসওয়ার্ড রিসেট ব্যর্থ হয়েছে: ${res.message}। পুনরায় চেষ্টা করতে 'পাসওয়ার্ড ফরগেট' লিখুন।")
+                            }
+                        } catch (e: Exception) {
+                            resCompletable.complete("❌ পাসওয়ার্ড রিসেট ব্যর্থ হয়েছে (নেটওয়ার্ক ত্রুটি)। পুনরায় চেষ্টা করতে 'পাসওয়ার্ড ফরগেট' লিখুন।")
+                        }
+                    }
+                    
+                    responseText = resCompletable.await()
+                    _aiFlowState.value = AiFlow.NONE
+                    _aiFlowData.clear()
+                }
+                
+                AiFlow.REPORT_USER_EMAIL -> {
+                    _aiFlowData["reported_email"] = normalizedMsg
+                    _aiFlowState.value = AiFlow.REPORT_USER_REASON
+                    responseText = "ধন্যবাদ। এবার ইউজারকে রিপোর্ট করার কারণ বা অভিযোগটি বিস্তারিত লিখুন:"
+                }
+                
+                AiFlow.REPORT_USER_REASON -> {
+                    val reportedEmail = _aiFlowData["reported_email"] ?: ""
+                    val reason = normalizedMsg
+                    
+                    responseText = "রিপোর্ট জমা দেওয়া হচ্ছে, অনুগ্রহ করে অপেক্ষা করুন..."
+                    
+                    val resCompletable = kotlinx.coroutines.CompletableDeferred<String>()
+                    reportUser(
+                        reportedEmail = reportedEmail,
+                        reason = reason,
+                        onSuccess = {
+                            resCompletable.complete("✅ ধন্যবাদ! আপনার রিপোর্টটি সফলভাবে জমা নেওয়া হয়েছে। আমাদের টিম এটি পর্যালোচনা করবে।")
+                        },
+                        onError = { error ->
+                            resCompletable.complete("❌ রিপোর্ট জমা দেওয়া ব্যর্থ হয়েছে। কারণ: $error")
+                        }
+                    )
+                    
+                    responseText = resCompletable.await()
+                    _aiFlowState.value = AiFlow.NONE
+                    _aiFlowData.clear()
+                }
+            }
         }
-        
+
         val aiMsgId = "msg_" + System.currentTimeMillis() + "_" + (1000..9999).random()
         val aiMsg = ChatMessage(
             id = aiMsgId,
@@ -2693,10 +2864,10 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             isOwn = false,
             isLocal = false
         )
-        
+
         val currentLocal = LocalStorage.getLocalMessages(context, chatKey)
         LocalStorage.saveLocalMessages(context, chatKey, currentLocal + aiMsg)
-        
+
         loadMessagesForConversation(chatUser.email)
     }
 

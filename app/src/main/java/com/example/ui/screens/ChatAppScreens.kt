@@ -135,10 +135,26 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
     val currentUser by viewModel.currentUser.collectAsState()
     val isDarkMode by viewModel.isDarkMode.collectAsState()
     val currentTheme by viewModel.chatTheme.collectAsState()
+    val offensiveWarningMessage by viewModel.offensiveWarningMessage.collectAsState()
 
     val bgBrush = getThemeGradient(currentTheme)
 
     MyCustomTheme(isDarkMode = isDarkMode) {
+        if (offensiveWarningMessage != null) {
+            AlertDialog(
+                onDismissRequest = { viewModel.dismissOffensiveWarning() },
+                title = { Text("⚠️ কন্টেন্ট সতর্কতা (Content Warning)") },
+                text = { Text(offensiveWarningMessage!!) },
+                confirmButton = {
+                    Button(
+                        onClick = { viewModel.dismissOffensiveWarning() }
+                    ) {
+                        Text("ঠিক আছে")
+                    }
+                }
+            )
+        }
+
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -2463,6 +2479,10 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
     var showPlusOptionsDialog by remember { mutableStateOf(false) }
     var showGroupMembersDialog by remember { mutableStateOf(false) }
 
+    var showAiChangePasswordDialog by remember { mutableStateOf(false) }
+    var showAiReportUserDialog by remember { mutableStateOf(false) }
+    var showAiForgotPasswordDialog by remember { mutableStateOf(false) }
+
     // Custom wallpapers
     val wallpaperModifier = Modifier.drawWithContent {
         drawContent()
@@ -2730,6 +2750,78 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
                             unfocusedBorderColor = MaterialTheme.colorScheme.outline
                         )
                     )
+                }
+            }
+
+            // AI assistant quick action banner
+            val isAiChat = viewModel.isAiUser(chatUser)
+            if (isAiChat) {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    colors = CardDefaults.cardColors(
+                        containerColor = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.25f)
+                    ),
+                    shape = RoundedCornerShape(12.dp)
+                ) {
+                    Column(modifier = Modifier.padding(10.dp)) {
+                        Text(
+                            text = "🤖 এ আই কুইক অ্যাকশনস (AI Quick Actions)",
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            // Change Password button
+                            Button(
+                                onClick = { viewModel.sendMessage("পাসওয়ার্ড পরিবর্তন") },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.secondary
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Filled.Lock, null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("পাসওয়ার্ড পরিবর্তন", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }
+
+                            // Report User button
+                            Button(
+                                onClick = { viewModel.sendMessage("ইউজার রিপোর্ট") },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.error
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Filled.Report, null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("ইউজার রিপোর্ট", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }
+
+                            // Forgot Password button
+                            Button(
+                                onClick = { viewModel.sendMessage("পাসওয়ার্ড ফরগেট") },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.tertiary
+                                ),
+                                shape = RoundedCornerShape(8.dp),
+                                contentPadding = PaddingValues(horizontal = 10.dp, vertical = 4.dp)
+                            ) {
+                                Icon(Icons.Filled.VpnKey, null, modifier = Modifier.size(14.dp))
+                                Spacer(modifier = Modifier.width(4.dp))
+                                Text("পাসওয়ার্ড ফরগেট", fontSize = 11.sp, fontWeight = FontWeight.SemiBold)
+                            }
+                        }
+                    }
                 }
             }
             // Typing indicator overlay
@@ -3243,6 +3335,358 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
             confirmButton = {
                 TextButton(onClick = { showThemeDialog = false }) {
                     Text("বন্ধ করুন")
+                }
+            }
+        )
+    }
+
+    if (showAiChangePasswordDialog) {
+        var oldPass by remember { mutableStateOf("") }
+        var newPass by remember { mutableStateOf("") }
+        var errorText by remember { mutableStateOf<String?>(null) }
+        var successText by remember { mutableStateOf<String?>(null) }
+        var isSubmitting by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { showAiChangePasswordDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Lock, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("পাসওয়ার্ড পরিবর্তন")
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("আপনার অ্যাকাউন্টের পাসওয়ার্ড পরিবর্তন করুন।", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                    
+                    OutlinedTextField(
+                        value = oldPass,
+                        onValueChange = { oldPass = it; errorText = null },
+                        label = { Text("পুরাতন পাসওয়ার্ড (Old Password)") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                    OutlinedTextField(
+                        value = newPass,
+                        onValueChange = { newPass = it; errorText = null },
+                        label = { Text("নতুন পাসওয়ার্ড (New Password)") },
+                        visualTransformation = PasswordVisualTransformation(),
+                        modifier = Modifier.fillMaxWidth()
+                    )
+
+                    if (errorText != null) {
+                        Text(errorText!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    }
+                    if (successText != null) {
+                        Text(successText!!, color = Color(0xFF00E676), fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (oldPass.isEmpty() || newPass.isEmpty()) {
+                            errorText = "সবগুলো ঘর পূরণ করুন।"
+                            return@Button
+                        }
+                        if (newPass.length < 6) {
+                            errorText = "নতুন পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।"
+                            return@Button
+                        }
+                        isSubmitting = true
+                        viewModel.changePassword(
+                            oldPass = oldPass,
+                            newPass = newPass,
+                            onSuccess = {
+                                isSubmitting = false
+                                successText = "পাসওয়ার্ড সফলভাবে পরিবর্তিত হয়েছে!"
+                                oldPass = ""
+                                newPass = ""
+                            },
+                            onError = { error ->
+                                isSubmitting = false
+                                errorText = error
+                            }
+                        )
+                    },
+                    enabled = !isSubmitting && successText == null
+                ) {
+                    if (isSubmitting) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary)
+                    } else {
+                        Text("পরিবর্তন করুন")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAiChangePasswordDialog = false }) {
+                    Text("বন্ধ করুন")
+                }
+            }
+        )
+    }
+
+    if (showAiReportUserDialog) {
+        var reportedEmail by remember { mutableStateOf("") }
+        var reason by remember { mutableStateOf("") }
+        var errorText by remember { mutableStateOf<String?>(null) }
+        var successText by remember { mutableStateOf<String?>(null) }
+        var isSubmitting by remember { mutableStateOf(false) }
+        var isDropdownExpanded by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { showAiReportUserDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.Report, contentDescription = null, tint = MaterialTheme.colorScheme.error)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("ইউজার রিপোর্ট করুন")
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text("কোনো ব্যবহারকারী অপব্যবহার বা নিয়ম ভঙ্গ করলে তার বিরুদ্ধে রিপোর্ট জমা দিন।", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                    
+                    Box(modifier = Modifier.fillMaxWidth()) {
+                        OutlinedTextField(
+                            value = reportedEmail,
+                            onValueChange = { reportedEmail = it; errorText = null },
+                            label = { Text("রিপোর্টকৃত ইউজারের ইমেইল") },
+                            modifier = Modifier.fillMaxWidth(),
+                            trailingIcon = {
+                                IconButton(onClick = { isDropdownExpanded = !isDropdownExpanded }) {
+                                    Icon(Icons.Filled.ArrowDropDown, "Select User")
+                                }
+                            }
+                        )
+                        DropdownMenu(
+                            expanded = isDropdownExpanded,
+                            onDismissRequest = { isDropdownExpanded = false },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            allActiveUsers.filter { it.email != currentUser?.email && !it.email.startsWith("group_") && !viewModel.isAiUser(it) }.forEach { u ->
+                                DropdownMenuItem(
+                                    text = { Text("${u.name} (${u.email})") },
+                                    onClick = {
+                                        reportedEmail = u.email
+                                        isDropdownExpanded = false
+                                        errorText = null
+                                    }
+                                )
+                            }
+                        }
+                    }
+
+                    OutlinedTextField(
+                        value = reason,
+                        onValueChange = { reason = it; errorText = null },
+                        label = { Text("রিপোর্ট করার কারণ (Reason)") },
+                        modifier = Modifier.fillMaxWidth(),
+                        minLines = 3
+                    )
+
+                    if (errorText != null) {
+                        Text(errorText!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    }
+                    if (successText != null) {
+                        Text(successText!!, color = Color(0xFF00E676), fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        if (reportedEmail.isEmpty() || reason.isEmpty()) {
+                            errorText = "সবগুলো ঘর পূরণ করুন।"
+                            return@Button
+                        }
+                        isSubmitting = true
+                        viewModel.reportUser(
+                            reportedEmail = reportedEmail,
+                            reason = reason,
+                            onSuccess = {
+                                isSubmitting = false
+                                successText = "রিপোর্টটি সফলভাবে জমা দেওয়া হয়েছে। এডমিন প্যানেল এটি পর্যালোচনা করবে।"
+                                reportedEmail = ""
+                                reason = ""
+                            },
+                            onError = { error ->
+                                isSubmitting = false
+                                errorText = error
+                            }
+                        )
+                    },
+                    enabled = !isSubmitting && successText == null
+                ) {
+                    if (isSubmitting) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary)
+                    } else {
+                        Text("রিপোর্ট জমা দিন")
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showAiReportUserDialog = false }) {
+                    Text("বন্ধ করুন")
+                }
+            }
+        )
+    }
+
+    if (showAiForgotPasswordDialog) {
+        var forgotStep by remember { mutableStateOf(1) } // 1: request code, 2: verify code, 3: reset password
+        var forgotEmail by remember { mutableStateOf("") }
+        var forgotCode by remember { mutableStateOf("") }
+        var forgotNewPass by remember { mutableStateOf("") }
+        var forgotErrorText by remember { mutableStateOf<String?>(null) }
+        var forgotSuccessText by remember { mutableStateOf<String?>(null) }
+        var forgotIsSubmitting by remember { mutableStateOf(false) }
+
+        AlertDialog(
+            onDismissRequest = { showAiForgotPasswordDialog = false },
+            title = {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(Icons.Filled.VpnKey, contentDescription = null, tint = MaterialTheme.colorScheme.tertiary)
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("পাসওয়ার্ড ফরগেট / রিসেট")
+                }
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    when (forgotStep) {
+                        1 -> {
+                            Text("আপনার রেজিস্টার্ড ইমেইল দিন। আমরা একটি ওটিপি কোড পাঠাবো।", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                            OutlinedTextField(
+                                value = forgotEmail,
+                                onValueChange = { forgotEmail = it; forgotErrorText = null },
+                                label = { Text("ইমেইল এড্রেস (Email Address)") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        2 -> {
+                            Text("আপনার ইমেইলে পাঠানো ভেরিফিকেশন কোডটি নিচে দিন।", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                            OutlinedTextField(
+                                value = forgotCode,
+                                onValueChange = { forgotCode = it; forgotErrorText = null },
+                                label = { Text("ভেরিফিকেশন কোড (Code)") },
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                        3 -> {
+                            Text("আপনার নতুন পাসওয়ার্ড সেট করুন।", fontSize = 12.sp, color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.7f))
+                            OutlinedTextField(
+                                value = forgotNewPass,
+                                onValueChange = { forgotNewPass = it; forgotErrorText = null },
+                                label = { Text("নতুন পাসওয়ার্ড (New Password)") },
+                                visualTransformation = PasswordVisualTransformation(),
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+                    }
+
+                    if (forgotErrorText != null) {
+                        Text(forgotErrorText!!, color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+                    }
+                    if (forgotSuccessText != null) {
+                        Text(forgotSuccessText!!, color = Color(0xFF00E676), fontSize = 12.sp)
+                    }
+                }
+            },
+            confirmButton = {
+                Button(
+                    onClick = {
+                        forgotErrorText = null
+                        when (forgotStep) {
+                            1 -> {
+                                if (forgotEmail.isEmpty()) {
+                                    forgotErrorText = "অনুগ্রহ করে ইমেইল লিখুন।"
+                                    return@Button
+                                }
+                                forgotIsSubmitting = true
+                                viewModel.requestForgotPasswordCode(
+                                    email = forgotEmail,
+                                    onSuccess = {
+                                        forgotIsSubmitting = false
+                                        forgotStep = 2
+                                    },
+                                    onError = { error ->
+                                        forgotIsSubmitting = false
+                                        forgotErrorText = error
+                                    }
+                                )
+                            }
+                            2 -> {
+                                if (forgotCode.isEmpty()) {
+                                    forgotErrorText = "অনুগ্রহ করে কোডটি লিখুন।"
+                                    return@Button
+                                }
+                                forgotIsSubmitting = true
+                                viewModel.verifyForgotPasswordCode(
+                                    email = forgotEmail,
+                                    code = forgotCode,
+                                    onSuccess = {
+                                        forgotIsSubmitting = false
+                                        forgotStep = 3
+                                    },
+                                    onError = { error ->
+                                        forgotIsSubmitting = false
+                                        forgotErrorText = error
+                                    }
+                                )
+                            }
+                            3 -> {
+                                if (forgotNewPass.isEmpty()) {
+                                    forgotErrorText = "অনুগ্রহ করে নতুন পাসওয়ার্ড লিখুন।"
+                                    return@Button
+                                }
+                                if (forgotNewPass.length < 6) {
+                                    forgotErrorText = "নতুন পাসওয়ার্ড কমপক্ষে ৬ অক্ষরের হতে হবে।"
+                                    return@Button
+                                }
+                                forgotIsSubmitting = true
+                                viewModel.resetPassword(
+                                    email = forgotEmail,
+                                    newPass = forgotNewPass,
+                                    onSuccess = {
+                                        forgotIsSubmitting = false
+                                        forgotSuccessText = "পাসওয়ার্ড সফলভাবে রিসেট করা হয়েছে!"
+                                    },
+                                    onError = { error ->
+                                        forgotIsSubmitting = false
+                                        forgotErrorText = error
+                                    }
+                                )
+                            }
+                        }
+                    },
+                    enabled = !forgotIsSubmitting && (forgotSuccessText == null)
+                ) {
+                    if (forgotIsSubmitting) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp), color = MaterialTheme.colorScheme.onPrimary)
+                    } else {
+                        Text(
+                            when (forgotStep) {
+                                1 -> "কোড পাঠান"
+                                2 -> "কোড যাচাই করুন"
+                                3 -> "পাসওয়ার্ড রিসেট করুন"
+                                else -> "পরবর্তী"
+                            }
+                        )
+                    }
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    onClick = {
+                        if (forgotStep > 1 && forgotSuccessText == null) {
+                            forgotStep--
+                        } else {
+                            showAiForgotPasswordDialog = false
+                        }
+                    }
+                ) {
+                    Text(if (forgotStep > 1 && forgotSuccessText == null) "পিছনে যান" else "বন্ধ করুন")
                 }
             }
         )
