@@ -88,6 +88,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     private val _unreadCounts = MutableStateFlow<Map<String, Int>>(LocalStorage.getUnreadCounts(context))
     val unreadCounts: StateFlow<Map<String, Int>> = _unreadCounts.asStateFlow()
 
+    private val localSeenTimestamps = java.util.concurrent.ConcurrentHashMap<String, Long>()
+
     private val _securedChats = MutableStateFlow<Map<String, String>>(LocalStorage.getSecuredChats(context))
     val securedChats: StateFlow<Map<String, String>> = _securedChats.asStateFlow()
 
@@ -885,8 +887,11 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                         val mySeenObj = (remoteSeen?.get(chatKeySanitized) as? Map<*, *>)?.get(myUserKey) as? Map<*, *>
                         val mySeenTs = (mySeenObj?.get("ts") as? Number)?.toLong() ?: 0L
                         
+                        val localSeenTs = localSeenTimestamps[otherEmail] ?: 0L
+                        val effectiveSeenTs = maxOf(mySeenTs, localSeenTs)
+                        
                         if (lastActivity > 0 && lastSender.isNotEmpty() && lastSender.lowercase() != current.email.lowercase()) {
-                            if (lastActivity > mySeenTs) {
+                            if (lastActivity > effectiveSeenTs) {
                                 calculatedUnreads[otherEmail] = 1
                             }
                         }
@@ -1200,6 +1205,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 currentRecents.add(0, user)
                 _recentChats.value = currentRecents
             }
+            localSeenTimestamps[user.email] = System.currentTimeMillis() + 10000L
             _unreadCounts.value = _unreadCounts.value.toMutableMap().apply { remove(user.email) }
             LocalStorage.saveUnreadCounts(context, _unreadCounts.value)
             loadMessagesForConversation(user.email, isFirstLoad = true)
@@ -1230,8 +1236,14 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     SupabaseRestClient.service.deleteValue("messages/$chatKey/${msg.id}")
                 }
 
+                // Update local seen timestamp
+                localSeenTimestamps[otherEmail] = System.currentTimeMillis() + 10000L
+
                 // 4. Reload the conversation
                 loadMessagesForConversation(otherEmail)
+
+                // 5. Explicitly update seen read receipts on Firebase
+                markMessagesSeenForOther(otherEmail, force = true)
             } catch (e: Exception) {
                 e.printStackTrace()
             }

@@ -841,15 +841,6 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box {
                                 Icon(Icons.Filled.ChatBubble, null, tint = MaterialTheme.colorScheme.primary)
-                                if (hasUnreadMessages) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(8.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.Red)
-                                            .align(Alignment.TopEnd)
-                                    )
-                                }
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             Box {
@@ -865,16 +856,6 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                     Text(text = coloredTitle, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                                 } else {
                                     Text("Echo Chat", fontWeight = FontWeight.Bold, fontSize = 20.sp)
-                                }
-                                if (hasUnreadMessages) {
-                                    Box(
-                                        modifier = Modifier
-                                            .size(6.dp)
-                                            .clip(CircleShape)
-                                            .background(Color.Red)
-                                            .align(Alignment.TopEnd)
-                                            .offset(x = 12.dp, y = (-2).dp)
-                                    )
                                 }
                             }
                             
@@ -1098,7 +1079,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                 }
                             }.distinctBy { it.email }
                         } else {
-                            allActiveUsers.filter { u -> !hiddenChats.containsKey(u.email) }.shuffled()
+                            allActiveUsers.filter { u -> !hiddenChats.containsKey(u.email) }.sortedBy { it.name.lowercase() }
                         }
 
                         if (searchField.isNotEmpty() && filteredUsers.isEmpty()) {
@@ -1836,43 +1817,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
         )
     }
 
-    // Glowing Neon Corner Color Pop-up for Hidden Folder Notifications
-    if (hasUnreadHiddenMessages && !isViewingHidden) {
-        val infiniteTransition = rememberInfiniteTransition(label = "corner_color_popup")
-        val alpha by infiniteTransition.animateFloat(
-            initialValue = 0.5f,
-            targetValue = 1.0f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1000, easing = LinearEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "corner_color_alpha"
-        )
-        val scale by infiniteTransition.animateFloat(
-            initialValue = 0.8f,
-            targetValue = 1.25f,
-            animationSpec = infiniteRepeatable(
-                animation = tween(1000, easing = FastOutSlowInEasing),
-                repeatMode = RepeatMode.Reverse
-            ),
-            label = "corner_color_scale"
-        )
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 16.dp, end = 16.dp),
-            contentAlignment = Alignment.TopEnd
-        ) {
-            Box(
-                modifier = Modifier
-                    .graphicsLayer(scaleX = scale, scaleY = scale)
-                    .size(16.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFFF007F).copy(alpha = alpha)) // Neon Magenta Pink
-                    .border(2.5.dp, Color.White, CircleShape)
-            )
-        }
-    }
+    // Neon corner pop-up removed as requested
 }
 
 @Composable
@@ -2186,8 +2131,6 @@ fun UserItemRow(
 ) {
     val rowBg = if (unreadCount > 0) {
         Color(0xFF2196F3).copy(alpha = 0.15f)
-    } else if (isUprooted) {
-        MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.12f)
     } else if (isNewUser) {
         MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.08f)
     } else {
@@ -2197,8 +2140,6 @@ fun UserItemRow(
     val shape = RoundedCornerShape(12.dp)
     val borderModifier = if (unreadCount > 0) {
         Modifier.border(2.dp, Color(0xFF2196F3), shape)
-    } else if (isUprooted) {
-        Modifier.border(1.dp, MaterialTheme.colorScheme.secondary.copy(alpha = 0.4f), shape)
     } else {
         Modifier
     }
