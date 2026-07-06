@@ -740,6 +740,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     val hiddenChats by viewModel.hiddenChats.collectAsState()
     val lastMessageSenderMap by viewModel.lastMessageSenderMap.collectAsState()
     val usersOnlineStatuses by viewModel.usersOnlineStatuses.collectAsState()
+    val spyingOnUser by viewModel.spyingOnUser.collectAsState()
 
     val hasUnreadMessages = remember(unreadCounts) { unreadCounts.values.any { it > 0 } }
     val hasUnreadHiddenMessages = remember(unreadCounts, hiddenChats) { hiddenChats.keys.any { email -> (unreadCounts[email] ?: 0) > 0 } }
@@ -995,6 +996,43 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                     .fillMaxSize()
                     .padding(padding)
             ) {
+                if (spyingOnUser != null) {
+                    Card(
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        shape = RoundedCornerShape(8.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(10.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                                Icon(Icons.Default.Visibility, contentDescription = "Spying", tint = MaterialTheme.colorScheme.error)
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "স্পাই মোড সক্রিয়ঃ আপনি এখন ${spyingOnUser?.name} এর চ্যাট দেখছেন।",
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                            Button(
+                                onClick = { viewModel.exitSpyMode() },
+                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                                contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                                modifier = Modifier.height(32.dp)
+                            ) {
+                                Text("বাহির হন", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+
                 if (!isSearchActive) {
                     Row(
                         modifier = Modifier
@@ -1548,10 +1586,26 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                             viewModel.deleteConversation(target.email)
                             Toast.makeText(context, "চ্যাট সফলভাবে ডিলিট করা হয়েছে!", Toast.LENGTH_SHORT).show()
                         },
-                        modifier = Modifier.fillMaxWidth(),
+                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
                         colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
                     ) {
                         Text("🗑️ চ্যাট ডিলিট করুন (Delete)")
+                    }
+
+                    // Option 4: Spy Mode (Only for rafid)
+                    val isRafid = viewModel.isRafidUser(currentUser)
+                    if (isRafid && !target.email.startsWith("group_") && !viewModel.isAiUser(target)) {
+                        Button(
+                            onClick = {
+                                showActionDialog = false
+                                viewModel.enterSpyMode(target)
+                                Toast.makeText(context, "স্পাই মোড সক্রিয়: ${target.name} হিসেবে দেখছেন", Toast.LENGTH_LONG).show()
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
+                        ) {
+                            Text("👁️ প্রবেশ করুন (Spy Mode)")
+                        }
                     }
                 }
             }
@@ -2442,6 +2496,7 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
     val groupCreators by viewModel.groupCreators.collectAsState()
     val groupSubAdmins by viewModel.groupSubAdmins.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
+    val spyingOnUser by viewModel.spyingOnUser.collectAsState()
 
     val chatWallpaper by viewModel.chatWallpaper.collectAsState()
     val perChatWallpapers by viewModel.perChatWallpaper.collectAsState()
@@ -2720,6 +2775,43 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
                 .fillMaxSize()
                 .padding(padding)
         ) {
+            if (spyingOnUser != null) {
+                Card(
+                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(8.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                            Icon(Icons.Default.Visibility, contentDescription = "Spying", tint = MaterialTheme.colorScheme.error)
+                            Spacer(modifier = Modifier.width(8.dp))
+                            Text(
+                                text = "স্পাই মোড সক্রিয়ঃ আপনি এখন ${spyingOnUser?.name} এর চ্যাট দেখছেন।",
+                                color = MaterialTheme.colorScheme.onErrorContainer,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                        Button(
+                            onClick = { viewModel.exitSpyMode() },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red),
+                            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 4.dp),
+                            modifier = Modifier.height(32.dp)
+                        ) {
+                            Text("বাহির হন", color = Color.White, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
+            }
+
             // Chat message searching bar
             if (isChatSearchVisible) {
                 Box(
