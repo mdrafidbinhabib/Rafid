@@ -2680,19 +2680,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     // Content Moderation check
     suspend fun checkIsOffensiveContent(text: String): Boolean {
-        val systemInstruction = """
-            You are a content moderation AI. Analyze the user's text for any adult content, vulgarity, profanity, offensive language, or abuse in Bengali or English.
-            Respond with exactly "SAFE" if the text is safe and appropriate.
-            Respond with exactly "OFFENSIVE" if the text contains adult language, profanity, vulgarity, abuse, or offensive content.
-            Do not include any other text, explanations, or formatting. Only output "SAFE" or "OFFENSIVE".
-        """.trimIndent()
-        
-        return try {
-            val res = callGeminiAPI(text, systemInstruction)
-            res.trim().uppercase() == "OFFENSIVE"
-        } catch (e: Exception) {
-            false
-        }
+        // Disabled to allow all users (non-admins) to send messages without being incorrectly blocked
+        return false
     }
 
     // Report User implementation

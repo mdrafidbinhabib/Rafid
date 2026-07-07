@@ -3098,6 +3098,9 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
                             }
                         }
 
+                        val senderUser = allActiveUsers.find { it.email.lowercase() == msg.senderEmail.lowercase() }
+                        val senderPhotoUrl = senderUser?.photoUrl ?: extractLinkFromName(msg.senderName)
+
                         MessageBubble(
                             msg = msg,
                             searchQuery = chatSearchQuery,
@@ -3123,7 +3126,8 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
                                 activeChatUser?.email?.let { otherMail ->
                                     viewModel.viewAndDecryptMessage(otherMail, msg)
                                 }
-                            }
+                            },
+                            senderPhotoUrl = senderPhotoUrl
                         )
                     }
                 }
@@ -4261,7 +4265,8 @@ fun MessageBubble(
     onViewPoll: () -> Unit = {},
     onCopy: () -> Unit = {},
     onDelete: () -> Unit = {},
-    onView: () -> Unit = {}
+    onView: () -> Unit = {},
+    senderPhotoUrl: String? = null
 ) {
     if (msg.text.startsWith("📊 POLL:")) {
         LaunchedEffect(msg.id) {
@@ -4321,7 +4326,7 @@ fun MessageBubble(
                 modifier = Modifier.padding(start = 12.dp, bottom = 2.dp)
             ) {
                 val cleanSenderName = removeLinkAndLockFromName(msg.senderName)
-                val senderImageUrl = extractLinkFromName(msg.senderName)
+                val senderImageUrl = senderPhotoUrl ?: extractLinkFromName(msg.senderName)
                 val senderHasHighlight = hasPhotoLink(msg.senderName)
 
                 Text(
@@ -4368,7 +4373,7 @@ fun MessageBubble(
             modifier = Modifier.fillMaxWidth()
         ) {
             if (!msg.isOwn) {
-                val senderImageUrl = extractLinkFromName(msg.senderName)
+                val senderImageUrl = senderPhotoUrl ?: extractLinkFromName(msg.senderName)
                 SafeAvatarImage(
                     model = senderImageUrl,
                     contentDescription = "Sender Profile Photo",
