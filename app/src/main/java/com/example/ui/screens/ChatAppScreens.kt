@@ -1909,6 +1909,40 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
         var groupPhotoUrl by remember { mutableStateOf(groupToEdit?.photoUrl ?: "") }
         val selectedMembers = remember { mutableStateListOf<String>() }
 
+        val groupImagePickerLauncher = rememberLauncherForActivityResult(
+            contract = ActivityResultContracts.GetContent()
+        ) { uri: Uri? ->
+            if (uri != null) {
+                try {
+                    val inputStream = context.contentResolver.openInputStream(uri)
+                    val originalBitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+                    if (originalBitmap != null) {
+                        val size = 150
+                        val scaledBitmap = if (originalBitmap.width > size || originalBitmap.height > size) {
+                            val ratio = originalBitmap.width.toFloat() / originalBitmap.height.toFloat()
+                            val (w, h) = if (ratio > 1) {
+                                Pair(size, (size / ratio).toInt())
+                            } else {
+                                Pair((size * ratio).toInt(), size)
+                            }
+                            android.graphics.Bitmap.createScaledBitmap(originalBitmap, w, h, true)
+                        } else {
+                            originalBitmap
+                        }
+                        
+                        val baos = java.io.ByteArrayOutputStream()
+                        scaledBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, baos)
+                        val bytes = baos.toByteArray()
+                        val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                        groupPhotoUrl = "data:image/jpeg;base64,$b64"
+                        Toast.makeText(context, "গ্রুপের ছবি সফলভাবে নির্বাচন করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                    }
+                } catch (e: Exception) {
+                    Toast.makeText(context, "ছবি লোড করতে ব্যর্থ: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+        }
+
         AlertDialog(
             onDismissRequest = { showGroupCustomizerDialog = false; groupToEdit = null },
             title = { Text(if (groupToEdit != null) "👥 গ্রুপ সংশোধন করুন" else "👥 নতুন গ্রুপ তৈরি করুন", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary) },
@@ -1921,13 +1955,32 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
                         shape = RoundedCornerShape(12.dp)
                     )
-                    OutlinedTextField(
-                        value = groupPhotoUrl,
-                        onValueChange = { groupPhotoUrl = it },
-                        label = { Text("গ্রুপ প্রোফাইল ছবি ইউআরএল") },
+                    Row(
                         modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        shape = RoundedCornerShape(12.dp)
-                    )
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        OutlinedTextField(
+                            value = groupPhotoUrl,
+                            onValueChange = { groupPhotoUrl = it },
+                            label = { Text("গ্রুপ প্রোফাইল ছবি ইউআরএল") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp)
+                        )
+                        Spacer(modifier = Modifier.width(8.dp))
+                        IconButton(
+                            onClick = { groupImagePickerLauncher.launch("image/*") },
+                            modifier = Modifier
+                                .size(50.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Image,
+                                contentDescription = "গ্যালারি থেকে ছবি নিন",
+                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                        }
+                    }
                     Spacer(modifier = Modifier.height(4.dp))
                     Text("গ্রুপের ছবির ডেমো নির্বাচন করুনঃ", fontSize = 11.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.secondary)
                     
@@ -1992,27 +2045,43 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                 }
             },
             confirmButton = {
-                Button(
-                    onClick = {
-                        if (groupName.isNotEmpty()) {
-                            viewModel.createOrUpdateGroup(
-                                groupId = groupToEdit?.email,
-                                name = groupName,
-                                photoUrl = groupPhotoUrl.ifEmpty { "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=150&q=80" },
-                                members = selectedMembers.toList()
-                            ) { success ->
-                                if (success) {
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    if (groupToEdit != null) {
+                        Button(
+                            onClick = {
+                                viewModel.deleteGroup(groupToEdit!!.email) {
                                     showGroupCustomizerDialog = false
                                     groupToEdit = null
-                                    Toast.makeText(context, "গ্রুপ সফলভাবে সম্পন্ন হয়েছে!", Toast.LENGTH_SHORT).show()
-                                } else {
-                                    Toast.makeText(context, "দুঃখিত, গ্রুপ তৈরিতে সমস্যা হয়েছে।", Toast.LENGTH_SHORT).show()
+                                    Toast.makeText(context, "গ্রুপটি ডিলিট করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                        ) {
+                            Text("ডিলিট", color = Color.White)
+                        }
+                    }
+                    Button(
+                        onClick = {
+                            if (groupName.isNotEmpty()) {
+                                viewModel.createOrUpdateGroup(
+                                    groupId = groupToEdit?.email,
+                                    name = groupName,
+                                    photoUrl = groupPhotoUrl.ifEmpty { "https://images.unsplash.com/photo-1522071820081-009f0129c71c?auto=format&fit=crop&w=150&q=80" },
+                                    members = selectedMembers.toList()
+                                ) { success ->
+                                    if (success) {
+                                        showGroupCustomizerDialog = false
+                                        groupToEdit = null
+                                        Toast.makeText(context, "গ্রুপ সফলভাবে সম্পন্ন হয়েছে!", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        Toast.makeText(context, "দুঃখিত, গ্রুপ তৈরিতে সমস্যা হয়েছে।", Toast.LENGTH_SHORT).show()
+                                    }
                                 }
                             }
                         }
+                    ) {
+                        Text("সম্পন্ন")
                     }
-                ) {
-                    Text("সম্পন্ন")
                 }
             },
             dismissButton = {
@@ -2234,9 +2303,11 @@ fun getRisingGradientBrush(): Brush {
     )
 }
 
+@Composable
 fun parseVerifiedColor(colorStr: String?): Color {
+    val isDark = isSystemInDarkTheme()
     if (colorStr == null) return Color(0xFFD4AF37)
-    return when (colorStr.lowercase().trim()) {
+    val baseColor = when (colorStr.lowercase().trim()) {
         "black" -> Color.Black
         "blue" -> Color(0xFF1E88E5)
         "green" -> Color(0xFF4CAF50)
@@ -2257,6 +2328,13 @@ fun parseVerifiedColor(colorStr: String?): Color {
             }
         }
     }
+    if (isDark && (baseColor == Color.Black || baseColor == Color(0xFF000000))) {
+        return Color(0xFFF1F5F9)
+    }
+    if (!isDark && (baseColor == Color.White || baseColor == Color(0xFFFFFFFF))) {
+        return Color(0xFF1E233D)
+    }
+    return baseColor
 }
 
 @Composable
@@ -4679,7 +4757,7 @@ fun getThemeGradient(key: String): Brush {
 fun removeLinkAndLockFromName(name: String): String {
     if (name.isEmpty()) return ""
     var clean = name.replace(Regex("\\[\\{.*?\\}\\(.*\\)\\]"), "")
-    clean = clean.replace(Regex("(https?://[^\\s]+)"), "").replace(Regex("[=#৳®©™]+$"), "")
+    clean = clean.replace(Regex("(https?://[^\\s]+)"), "").replace(Regex("[=#৳®©™°]+$"), "")
     return clean.trim()
 }
 

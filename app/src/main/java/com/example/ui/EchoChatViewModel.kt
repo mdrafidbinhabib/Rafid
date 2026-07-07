@@ -416,7 +416,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 if (res.status == "success" && res.user != null) {
                     if (res.user.name.endsWith("&")) {
                         withContext(Dispatchers.Main) {
-                            _authError.value = "Access Denied: This account is deactivated as the name ends with '&'."
+                            _authError.value = "আইডি লগইন হচ্ছে না"
                             _authLoading.value = false
                         }
                         return@launch
@@ -1324,6 +1324,12 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             // Block if recipient name ends with '#'
             if (chatUser.name.trim().endsWith("#")) {
                 _authError.value = "এই ব্যবহারকারীকে বার্তা পাঠানো সম্ভব নয় কারণ উনার নামের শেষে '#' রয়েছে।"
+                return
+            }
+
+            // Block if recipient name ends with '°', unless the sender is that user themselves
+            if (chatUser.name.trim().endsWith("°") && current.email.lowercase() != chatUser.email.lowercase()) {
+                _authError.value = "এই ব্যবহারকারীকে বার্তা পাঠানো সম্ভব নয়।"
                 return
             }
 
@@ -2496,6 +2502,23 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 e.printStackTrace()
                 withContext(Dispatchers.Main) {
                     onComplete(false)
+                }
+            }
+        }
+    }
+
+    fun deleteGroup(groupId: String, onComplete: (Boolean) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                SupabaseRestClient.service.deleteValue("groups/$groupId")
+                deleteConversation(groupId)
+                withContext(Dispatchers.Main) {
+                    onComplete(true)
+                }
+            } catch (e: Exception) {
+                deleteConversation(groupId)
+                withContext(Dispatchers.Main) {
+                    onComplete(true)
                 }
             }
         }
