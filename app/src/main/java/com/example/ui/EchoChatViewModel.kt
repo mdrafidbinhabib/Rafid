@@ -63,6 +63,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     private val _allRawMessages = MutableStateFlow<List<MessageRaw>>(emptyList())
     val allRawMessages: StateFlow<List<MessageRaw>> = _allRawMessages.asStateFlow()
 
+    private val _conversationsLastActivity = MutableStateFlow<Map<String, Long>>(emptyMap())
+    val conversationsLastActivity: StateFlow<Map<String, Long>> = _conversationsLastActivity.asStateFlow()
+
     private val _chatLoading = MutableStateFlow(false)
     val chatLoading: StateFlow<Boolean> = _chatLoading.asStateFlow()
 
@@ -254,6 +257,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             _currentUser.value = savedUser
             startSynchronization()
         }
+        reloadSecuredAndHiddenChats()
         val verified = LocalStorage.getVerifiedUsers(context).toMutableMap()
         verified["md.r.rafid1234@gmail.com"] = "gold"
         _premiumVerifiedColors.value = verified
@@ -388,6 +392,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         )
         LocalStorage.saveLoggedInUser(context, demoUser, "1234")
         _currentUser.value = demoUser
+        reloadSecuredAndHiddenChats()
         _authLoading.value = false
         
         // Setup initial demo state
@@ -419,6 +424,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     LocalStorage.saveLoggedInUser(context, res.user, accessKey)
                     withContext(Dispatchers.Main) {
                         _currentUser.value = res.user
+                        reloadSecuredAndHiddenChats()
                         _authLoading.value = false
                         startSynchronization()
                         onSuccess()
@@ -501,6 +507,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
         LocalStorage.clearLoggedInUser(context)
         _currentUser.value = null
+        reloadSecuredAndHiddenChats()
         stopSynchronization()
     }
 
@@ -778,11 +785,13 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                         null
                     }
                     val activityMap = mutableMapOf<String, Long>()
+                    val allActivityMap = mutableMapOf<String, Long>()
                     val mySan = sanitizeId(effectiveCurrentUser.email)
                     remoteLastActivity?.forEach { (k, v) ->
                         val chatKeyStr = k?.toString() ?: return@forEach
                         val ts = (v as? Number)?.toLong() ?: 0L
                         activityMap[chatKeyStr] = ts
+                        allActivityMap[chatKeyStr] = ts
                         
                         // If it's a mutual chat key: "user1_email_com__user2_email_com"
                         if (chatKeyStr.contains("__")) {
@@ -942,6 +951,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                         _groupMembers.value = groupMembers
                         _groupCreators.value = groupCreators
                         _groupSubAdmins.value = groupSubAdmins
+                        _conversationsLastActivity.value = allActivityMap
                         _lastActiveTimestamps.value = activityMap
                         _lastMessageSenderMap.value = lastMsgsSenderMap
                         _unreadCounts.value = calculatedUnreads
@@ -2921,6 +2931,11 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     fun toggleForceAdmin() {
         forceAdmin.value = !forceAdmin.value
+    }
+
+    fun reloadSecuredAndHiddenChats() {
+        _securedChats.value = LocalStorage.getSecuredChats(context)
+        _hiddenChats.value = LocalStorage.getHiddenChats(context)
     }
 
     fun isRafidUser(user: User?): Boolean {

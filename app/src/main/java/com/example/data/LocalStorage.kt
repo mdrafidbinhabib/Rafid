@@ -109,9 +109,21 @@ object LocalStorage {
         getPrefs(context).edit().putString("CHAT_LOCK_PIN", pin).apply()
     }
 
+    private fun getSecuredChatsKey(context: Context): String {
+        val user = getLoggedInUser(context)
+        val suffix = user?.email?.lowercase()?.trim() ?: "default"
+        return "SECURED_CHATS_JSON_$suffix"
+    }
+
+    private fun getHiddenChatsKey(context: Context): String {
+        val user = getLoggedInUser(context)
+        val suffix = user?.email?.lowercase()?.trim() ?: "default"
+        return "HIDDEN_CHATS_JSON_$suffix"
+    }
+
     // Secured chats list (stores map of chat email to password lock)
     fun getSecuredChats(context: Context): Map<String, String> {
-        val json = getPrefs(context).getString("SECURED_CHATS_JSON", null) ?: return emptyMap()
+        val json = getPrefs(context).getString(getSecuredChatsKey(context), null) ?: return emptyMap()
         return try {
             val type = Types.newParameterizedType(Map::class.java, String::class.java, String::class.java)
             moshi.adapter<Map<String, String>>(type).fromJson(json) ?: emptyMap()
@@ -129,12 +141,12 @@ object LocalStorage {
         }
         val type = Types.newParameterizedType(Map::class.java, String::class.java, String::class.java)
         val json = moshi.adapter<Map<String, String>>(type).toJson(current)
-        getPrefs(context).edit().putString("SECURED_CHATS_JSON", json).apply()
+        getPrefs(context).edit().putString(getSecuredChatsKey(context), json).apply()
     }
 
     // Hidden chats list (stores map of chat email to hidden search key)
     fun getHiddenChats(context: Context): Map<String, String> {
-        val json = getPrefs(context).getString("HIDDEN_CHATS_JSON", null) ?: return emptyMap()
+        val json = getPrefs(context).getString(getHiddenChatsKey(context), null) ?: return emptyMap()
         return try {
             val type = Types.newParameterizedType(Map::class.java, String::class.java, String::class.java)
             moshi.adapter<Map<String, String>>(type).fromJson(json) ?: emptyMap()
@@ -152,7 +164,7 @@ object LocalStorage {
         }
         val type = Types.newParameterizedType(Map::class.java, String::class.java, String::class.java)
         val json = moshi.adapter<Map<String, String>>(type).toJson(current)
-        getPrefs(context).edit().putString("HIDDEN_CHATS_JSON", json).apply()
+        getPrefs(context).edit().putString(getHiddenChatsKey(context), json).apply()
     }
 
     // Unread message counts map

@@ -35,6 +35,8 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontStyle
@@ -874,7 +876,25 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                     android.widget.Toast.makeText(context, "Admin Mode Toggled!", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             }) {
-                                Text("Echo Chat", fontWeight = FontWeight.Bold, fontSize = 20.sp)
+                                val hasUnreadHiddenMessages = remember(unreadCounts, hiddenChats) {
+                                    unreadCounts.any { (email, count) -> count > 0 && hiddenChats.containsKey(email) }
+                                }
+                                val onBgColor = MaterialTheme.colorScheme.onBackground
+                                val headerText = buildAnnotatedString {
+                                    if (hasUnreadHiddenMessages) {
+                                        withStyle(SpanStyle(color = Color(0xFF4CAF50))) {
+                                            append("Echo ")
+                                        }
+                                        withStyle(SpanStyle(color = Color(0xFFE53935))) {
+                                            append("Chat")
+                                        }
+                                    } else {
+                                        withStyle(SpanStyle(color = onBgColor)) {
+                                            append("Echo Chat")
+                                        }
+                                    }
+                                }
+                                Text(text = headerText, fontWeight = FontWeight.Bold, fontSize = 20.sp)
                             }
                         }
                     },
@@ -1282,6 +1302,20 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                             }
                         } else {
                             LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                item {
+                                    OutlinedButton(
+                                        onClick = { showGroupCustomizerDialog = true },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        shape = RoundedCornerShape(12.dp),
+                                        border = androidx.compose.foundation.BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
+                                    ) {
+                                        Icon(Icons.Default.Add, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                        Text("নতুন গ্রুপ তৈরি করুন", color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.SemiBold)
+                                    }
+                                }
                                 items(sortedGroups) { group ->
                                     val unread = unreadCounts[group.email] ?: 0
                                     val groupMembersEmails = groupMembers[group.email] ?: emptyList()
@@ -1402,9 +1436,24 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
 
                                 HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
 
-                                // Analyze who X talked to
-                                val chatPartners = remember(allRawMessages, currentTarget.email) {
+                                // Analyze who X talked to using real-time Firebase conversations last activity
+                                val conversationsLastActivity by viewModel.conversationsLastActivity.collectAsState()
+                                val chatPartners = remember(conversationsLastActivity, currentTarget.email, allActiveUsers) {
+                                    val targetSanitized = viewModel.sanitizeId(currentTarget.email)
                                     val partners = mutableMapOf<String, Long>() // email -> latestTimestamp
+                                    conversationsLastActivity.forEach { (chatKey, ts) ->
+                                        if (chatKey.contains("__")) {
+                                            val parts = chatKey.split("__")
+                                            if (parts.size == 2 && parts.contains(targetSanitized)) {
+                                                val otherSanitized = parts.first { it != targetSanitized }
+                                                val matchingUser = allActiveUsers.find { viewModel.sanitizeId(it.email) == otherSanitized }
+                                                val actualEmail = matchingUser?.email ?: (otherSanitized.replace("_", ".") + "@gmail.com")
+                                                partners[actualEmail] = ts
+                                            }
+                                        }
+                                    }
+                                    if (true) return@remember partners.toList().sortedByDescending { it.second }.map { it.first }
+                                    val partnersDummy = mutableMapOf<String, Long>() // email -> latestTimestamp
                                     allRawMessages.forEach { msg ->
                                         val parts = msg.getParticipantsList()
                                         if (parts.size == 2 && parts.contains(currentTarget.email)) {
@@ -4076,7 +4125,7 @@ fun ClickableLinkText(
 ) {
     val uriHandler = androidx.compose.ui.platform.LocalUriHandler.current
     val annotatedString = remember(text, textColor) {
-        androidx.compose.ui.text.buildAnnotatedString {
+        buildAnnotatedString {
             val urlPattern = java.util.regex.Pattern.compile(
                 "((?:https?://|www\\.)[^\\s]+)",
                 java.util.regex.Pattern.CASE_INSENSITIVE
