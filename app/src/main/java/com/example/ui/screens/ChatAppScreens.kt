@@ -743,6 +743,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     val lastMessageSenderMap by viewModel.lastMessageSenderMap.collectAsState()
     val usersOnlineStatuses by viewModel.usersOnlineStatuses.collectAsState()
     val spyingOnUser by viewModel.spyingOnUser.collectAsState()
+    val agreedUsers by viewModel.agreedUsers.collectAsState()
     val allRawMessages by viewModel.allRawMessages.collectAsState()
 
     var usersTabSearchQuery by remember { mutableStateOf("") }
@@ -1092,7 +1093,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                 }
                             }.distinctBy { it.email }
                         } else {
-                            allActiveUsers.filter { u -> !hiddenChats.containsKey(u.email) }.sortedBy { it.name.lowercase() }
+                            emptyList()
                         }
 
                         if (searchField.isNotEmpty() && filteredUsers.isEmpty()) {
@@ -1141,6 +1142,36 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         }
                                     }
                                 }
+                            }
+                        } else if (searchField.isEmpty()) {
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(32.dp),
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Search,
+                                    contentDescription = null,
+                                    modifier = Modifier.size(72.dp),
+                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
+                                )
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = "চ্যাট শুরু করতে ব্যবহারকারী খুঁজুন",
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 18.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "কারো সাথে কথা বলতে উনার নাম অথবা ইমেল ঠিকানা দিয়ে সার্চ করুন।",
+                                    fontSize = 13.sp,
+                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                    lineHeight = 18.sp
+                                )
                             }
                         } else {
                             LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -1199,15 +1230,18 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                             .toSet()
                     }
 
-                    if (dashboardTab == "all") {
-                        val combinedList = recentsAndGroups
-                            .sortedWith(
-                                compareByDescending<User> { u ->
-                                    (unreadCounts[u.email] ?: 0) > 0
-                                }.thenByDescending { u ->
-                                    lastActiveTimestamps[u.email] ?: 0L
-                                }
-                            )
+                    if (dashboardTab == "all" || dashboardTab == "chats") {
+                        val combinedList = (if (dashboardTab == "chats") {
+                            recentsAndGroups.filter { !it.email.startsWith("group_") }
+                        } else {
+                            recentsAndGroups
+                        }).sortedWith(
+                            compareByDescending<User> { u ->
+                                (unreadCounts[u.email] ?: 0) > 0
+                            }.thenByDescending { u ->
+                                lastActiveTimestamps[u.email] ?: 0L
+                            }
+                        )
                         if (combinedList.isEmpty()) {
                             Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -1268,13 +1302,8 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                             }
                                         },
                                         onLongClick = {
-                                            if (isGrp) {
-                                                groupToEdit = conversation
-                                                showGroupCustomizerDialog = true
-                                            } else {
-                                                activeLongClickUser = conversation
-                                                showActionDialog = true
-                                            }
+                                            activeLongClickUser = conversation
+                                            showActionDialog = true
                                         }
                                     )
                                 }
@@ -1350,8 +1379,8 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                             viewModel.selectChatUser(group)
                                         },
                                         onLongClick = {
-                                            groupToEdit = group
-                                            showGroupCustomizerDialog = true
+                                            activeLongClickUser = group
+                                            showActionDialog = true
                                         }
                                     )
                                 }
@@ -1638,14 +1667,15 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     // Long press Action Dialog
     if (showActionDialog && activeLongClickUser != null) {
         val target = activeLongClickUser!!
-        val isSecured = securedChats.containsKey(target.email)
-        val isHidden = hiddenChats.containsKey(target.email)
+        val isGroup = target.email.startsWith("group_")
+        val isSecured = if (isGroup) false else securedChats.containsKey(target.email)
+        val isHidden = if (isGroup) false else hiddenChats.containsKey(target.email)
 
         AlertDialog(
             onDismissRequest = { showActionDialog = false },
             title = {
-                val verifiedColor = target.email.let { premiumVerifiedColors[it] }
-                val isPremiumVerified = verifiedColor != null || target.name.contains("(Verified)")
+                val verifiedColor = if (isGroup) null else target.email.let { premiumVerifiedColors[it] }
+                val isPremiumVerified = !isGroup && (verifiedColor != null || target.name.contains("(Verified)"))
                 val finalVerifiedColor = verifiedColor ?: if (target.name.contains("(Verified)")) "blue" else null
                 val cleanName = removeLinkAndLockFromName(target.name)
 
@@ -1668,75 +1698,129 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                     }
                 }
             },
-            text = { Text("আপনার নির্বাচিত ইউজারের জন্য নিচে দেয়া অপারেশনগুলোর একটি নির্বাচন করুণঃ") },
+            text = { Text(if (isGroup) "আপনার নির্বাচিত গ্রূপের জন্য নিচে দেয়া অপারেশনগুলোর একটি নির্বাচন করুণঃ" else "আপনার নির্বাচিত ইউজারের জন্য নিচে দেয়া অপারেশনগুলোর একটি নির্বাচন করুণঃ") },
             confirmButton = {
                 Column(modifier = Modifier.fillMaxWidth()) {
-                    // Option 1: Chat Lock
-                    Button(
-                        onClick = {
-                            showActionDialog = false
-                            if (isSecured) {
-                                pinUnlockValue = ""
-                                pinUnlockError = false
-                                showPinUnlockDialog = true
-                            } else {
-                                showPinSetDialog = true
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isSecured) Color.Gray else MaterialTheme.colorScheme.primary
-                        )
-                    ) {
-                        Text(if (isSecured) "🔓 চ্যাট আনলক করো" else "🔒 চ্যাট সিকিউর করো (Chat Lock)")
-                    }
-
-                    // Option 2: Hide
-                    Button(
-                        onClick = {
-                            showActionDialog = false
-                            if (isHidden) {
-                                viewModel.hideChat(target.email, null)
-                                Toast.makeText(context, "চ্যাটটি আনহাইড করা হয়েছে!", Toast.LENGTH_SHORT).show()
-                            } else {
-                                hideTextValue = ""
-                                showHideSetDialog = true
-                            }
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = if (isHidden) MaterialTheme.colorScheme.secondary else Color(0xFFF59E0B)
-                        )
-                    ) {
-                        Text(if (isHidden) "👁️ চ্যাট আনহাইড করুন (Unhide)" else "🙈 চ্যাট হাইড করুন (Hide)")
-                    }
-
-                    // Option 3: Delete
-                    Button(
-                        onClick = {
-                            showActionDialog = false
-                            viewModel.deleteConversation(target.email)
-                            Toast.makeText(context, "চ্যাট সফলভাবে ডিলিট করা হয়েছে!", Toast.LENGTH_SHORT).show()
-                        },
-                        modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
-                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
-                    ) {
-                        Text("🗑️ চ্যাট ডিলিট করুন (Delete)")
-                    }
-
-                    // Option 4: Spy Mode (Only for rafid)
-                    val isRafid = viewModel.isRafidUser(currentUser)
-                    if (isRafid && !target.email.startsWith("group_") && !viewModel.isAiUser(target)) {
+                    if (isGroup) {
+                        // Option 1: Edit Group
                         Button(
                             onClick = {
                                 showActionDialog = false
-                                viewModel.enterSpyMode(target)
-                                Toast.makeText(context, "স্পাই মোড সক্রিয়: ${target.name} হিসেবে দেখছেন", Toast.LENGTH_LONG).show()
+                                groupToEdit = target
+                                showGroupCustomizerDialog = true
                             },
-                            modifier = Modifier.fillMaxWidth(),
-                            colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
                         ) {
-                            Text("👁️ প্রবেশ করুন (Spy Mode)")
+                            Text("⚙️ গ্রুপ সংশোধন করুন (Edit Group)")
+                        }
+
+                        // Option 2: Delete Group
+                        Button(
+                            onClick = {
+                                showActionDialog = false
+                                viewModel.deleteGroup(target.email) {
+                                    Toast.makeText(context, "গ্রুপটি সফলভাবে ডিলিট করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                        ) {
+                            Text("🗑️ গ্রুপ ডিলিট করুন (Delete Group)")
+                        }
+                    } else {
+                        // Option 1: Chat Lock
+                        Button(
+                            onClick = {
+                                showActionDialog = false
+                                if (isSecured) {
+                                    pinUnlockValue = ""
+                                    pinUnlockError = false
+                                    showPinUnlockDialog = true
+                                } else {
+                                    showPinSetDialog = true
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isSecured) Color.Gray else MaterialTheme.colorScheme.primary
+                            )
+                        ) {
+                            Text(if (isSecured) "🔓 চ্যাট আনলক করো" else "🔒 চ্যাট সিকিউর করো (Chat Lock)")
+                        }
+
+                        // Option 2: Hide
+                        Button(
+                            onClick = {
+                                showActionDialog = false
+                                if (isHidden) {
+                                    viewModel.hideChat(target.email, null)
+                                    Toast.makeText(context, "চ্যাটটি আনহাইড করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    hideTextValue = ""
+                                    showHideSetDialog = true
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isHidden) MaterialTheme.colorScheme.secondary else Color(0xFFF59E0B)
+                            )
+                        ) {
+                            Text(if (isHidden) "👁️ চ্যাট আনহাইড করুন (Unhide)" else "🙈 চ্যাট হাইড করুন (Hide)")
+                        }
+
+                        // Option 3: Agree option for Special user '°'
+                        val userCurrent = currentUser
+                        val isSpecialUser = userCurrent?.name?.trim()?.endsWith("°") == true
+                        if (isSpecialUser && !viewModel.isAiUser(target) && userCurrent != null) {
+                            val isAgreed = agreedUsers[viewModel.sanitizeId(userCurrent.email)]?.get(viewModel.sanitizeId(target.email)) == true
+                            Button(
+                                onClick = {
+                                    showActionDialog = false
+                                    if (isAgreed) {
+                                        viewModel.revokeAgreeSmsUser(userCurrent.email, target.email)
+                                        Toast.makeText(context, "অনুমতি বাতিল করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                    } else {
+                                        viewModel.agreeSmsUser(userCurrent.email, target.email)
+                                        Toast.makeText(context, "এসএমএস পাঠানোর অনুমতি দেওয়া হয়েছে!", Toast.LENGTH_SHORT).show()
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (isAgreed) Color.Gray else Color(0xFF10B981)
+                                )
+                            ) {
+                                Text(if (isAgreed) "❌ অনুমতি বাতিল করুন" else "✅ এসএমএস পাঠানোর অনুমতি দিন (Agree)")
+                            }
+                        }
+
+                        // Option 4: Delete
+                        Button(
+                            onClick = {
+                                showActionDialog = false
+                                viewModel.deleteConversation(target.email)
+                                Toast.makeText(context, "চ্যাট সফলভাবে ডিলিট করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                        ) {
+                            Text("🗑️ চ্যাট ডিলিট করুন (Delete)")
+                        }
+
+                        // Option 5: Spy Mode (Only for rafid)
+                        val isRafid = viewModel.isRafidUser(currentUser)
+                        if (isRafid && !target.email.startsWith("group_") && !viewModel.isAiUser(target)) {
+                            Button(
+                                onClick = {
+                                    showActionDialog = false
+                                    viewModel.enterSpyMode(target)
+                                    Toast.makeText(context, "স্পাই মোড সক্রিয়: ${target.name} হিসেবে দেখছেন", Toast.LENGTH_LONG).show()
+                                },
+                                modifier = Modifier.fillMaxWidth(),
+                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF6366F1))
+                            ) {
+                                Text("👁️ প্রবেশ করুন (Spy Mode)")
+                            }
                         }
                     }
                 }

@@ -230,6 +230,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     private val _premiumVerifiedColors = MutableStateFlow<Map<String, String>>(emptyMap())
     val premiumVerifiedColors: StateFlow<Map<String, String>> = _premiumVerifiedColors.asStateFlow()
 
+    private val _agreedUsers = MutableStateFlow<Map<String, Map<String, Boolean>>>(emptyMap())
+    val agreedUsers: StateFlow<Map<String, Map<String, Boolean>>> = _agreedUsers.asStateFlow()
+
     private val _premiumCodes = MutableStateFlow<List<PremiumCode>>(emptyList())
     val premiumCodes: StateFlow<List<PremiumCode>> = _premiumCodes.asStateFlow()
 
@@ -248,6 +251,38 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     fun exitSpyMode() {
         _spyingOnUser.value = null
         loadAllConversationsAndUsers()
+    }
+
+    fun agreeSmsUser(specialUserEmail: String, otherUserEmail: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val path = "agreed_users/${sanitizeId(specialUserEmail)}/${sanitizeId(otherUserEmail)}"
+                FirebaseRestClient.service.setValue(path, true)
+                val currentMap = _agreedUsers.value.toMutableMap()
+                val innerMap = currentMap[sanitizeId(specialUserEmail)]?.toMutableMap() ?: mutableMapOf()
+                innerMap[sanitizeId(otherUserEmail)] = true
+                currentMap[sanitizeId(specialUserEmail)] = innerMap
+                _agreedUsers.value = currentMap
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun revokeAgreeSmsUser(specialUserEmail: String, otherUserEmail: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val path = "agreed_users/${sanitizeId(specialUserEmail)}/${sanitizeId(otherUserEmail)}"
+                FirebaseRestClient.service.deleteValue(path)
+                val currentMap = _agreedUsers.value.toMutableMap()
+                val innerMap = currentMap[sanitizeId(specialUserEmail)]?.toMutableMap() ?: mutableMapOf()
+                innerMap.remove(sanitizeId(otherUserEmail))
+                currentMap[sanitizeId(specialUserEmail)] = innerMap
+                _agreedUsers.value = currentMap
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     init {
@@ -707,7 +742,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     }
 
                     val activeUsers = userRes.users.filter { u ->
-                        u.email != effectiveCurrentUser.email && !u.name.endsWith("®") && !deleted.contains(u.email)
+                        u.email != effectiveCurrentUser.email && !u.name.endsWith("®")
                     }.map { u ->
                         var mappedUser = u
                         if (remoteProfiles != null) {
@@ -870,7 +905,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
                     // Map emails to real users
                     val mappedRecents = activeUsersWithAI.filter { u ->
-                        recentEmails.contains(u.email) || lastMsgsMap.containsKey(u.email)
+                        (recentEmails.contains(u.email) || lastMsgsMap.containsKey(u.email)) && !deleted.contains(u.email)
                     }.sortedByDescending { u ->
                         timestampsMap[u.email] ?: 0L
                     }
@@ -1257,6 +1292,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         _currentChatUser.value = user
         _messages.value = emptyList()
         if (user != null) {
+            if (_deletedConversations.value.contains(user.email)) {
+                restoreConversation(user.email)
+            }
             val currentRecents = _recentChats.value.toMutableList()
             if (currentRecents.none { it.email.lowercase() == user.email.lowercase() }) {
                 currentRecents.add(0, user)
@@ -1327,10 +1365,13 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 return
             }
 
-            // Block if recipient name ends with '°', unless the sender is that user themselves
+            // Block if recipient name ends with '°', unless the sender is that user themselves or is agreed
             if (chatUser.name.trim().endsWith("°") && current.email.lowercase() != chatUser.email.lowercase()) {
-                _authError.value = "এই ব্যবহারকারীকে বার্তা পাঠানো সম্ভব নয়।"
-                return
+                val isSenderAgreed = _agreedUsers.value[sanitizeId(chatUser.email)]?.get(sanitizeId(current.email)) == true
+                if (!isSenderAgreed) {
+                    _authError.value = "এই ব্যবহারকারীকে বার্তা পাঠানো সম্ভব নয়।"
+                    return
+                }
             }
 
             if (_deletedConversations.value.contains(chatUser.email)) {
@@ -1607,6 +1648,29 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         } catch (e: Exception) {
             _usersOnlineStatuses.value = emptyMap()
             _partnerOnlineStatus.value = "offline"
+        }
+
+        // 3. Sync Agreed Users
+        try {
+            val allAgreedMap = FirebaseRestClient.service.getValue("agreed_users") as? Map<*, *>
+            if (allAgreedMap != null) {
+                val agreementsMap = mutableMapOf<String, Map<String, Boolean>>()
+                allAgreedMap.forEach { (specialKey, innerVal) ->
+                    val specEmail = specialKey?.toString() ?: return@forEach
+                    val innerMap = innerVal as? Map<*, *> ?: return@forEach
+                    val specAgreements = mutableMapOf<String, Boolean>()
+                    innerMap.forEach { (otherKey, flag) ->
+                        val oKeyStr = otherKey?.toString() ?: return@forEach
+                        specAgreements[oKeyStr] = true
+                    }
+                    agreementsMap[specEmail] = specAgreements
+                }
+                _agreedUsers.value = agreementsMap
+            } else {
+                _agreedUsers.value = emptyMap()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
         }
     }
 
