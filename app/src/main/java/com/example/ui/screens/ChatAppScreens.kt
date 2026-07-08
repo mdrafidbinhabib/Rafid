@@ -6102,7 +6102,8 @@ fun RealTimeMicrophoneVisualizer(bars: List<Float>, modifier: Modifier = Modifie
         bars.forEach { barHeight ->
             val animatedHeight by animateFloatAsState(
                 targetValue = barHeight,
-                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow),
+                label = "barHeight"
             )
             Box(
                 modifier = Modifier
