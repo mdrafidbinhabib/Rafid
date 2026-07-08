@@ -1624,7 +1624,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     val valMap = value as? Map<*, *> ?: return@forEach
                     val status = (valMap["status"] as? String) ?: "offline"
                     val ts = (valMap["ts"] as? Number)?.toLong() ?: 0L
-                    if (now - ts <= 15000) {
+                    val diff = Math.abs(now - ts)
+                    if (diff <= 60000) {
                         statuses[userK] = status
                     } else {
                         statuses[userK] = "offline"
