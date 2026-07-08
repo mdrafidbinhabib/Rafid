@@ -5,6 +5,7 @@ import android.widget.Toast
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
@@ -6206,12 +6207,14 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
     val allUsers by viewModel.allUsers.collectAsState()
     val chatUser by viewModel.currentChatUser.collectAsState()
 
+    val backgroundClickModifier = Modifier.clickable(
+        interactionSource = remember { MutableInteractionSource() },
+        indication = null,
+        onClick = {}
+    )
+
     Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .pointerInput(Unit) {
-                detectTapGestures { } // consume clicks to background safely without blocking children
-            }
+        modifier = Modifier.fillMaxSize()
     ) {
         when (callState) {
             is CallState.Outgoing -> {
@@ -6221,7 +6224,7 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                 val peerPhotoUrl = peerUser?.photoUrl
 
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().then(backgroundClickModifier),
                     color = Color(0xFF0F172A)
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
@@ -6333,7 +6336,7 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                 val peerPhotoUrl = peerUser?.photoUrl
 
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().then(backgroundClickModifier),
                     color = Color(0xFF0F172A)
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
@@ -6557,7 +6560,7 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                 }
 
                 Surface(
-                    modifier = Modifier.fillMaxSize(),
+                    modifier = Modifier.fillMaxSize().then(backgroundClickModifier),
                     color = Color(0xFF0F172A)
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
