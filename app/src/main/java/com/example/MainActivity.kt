@@ -15,6 +15,19 @@ class MainActivity : ComponentActivity() {
     super.onCreate(savedInstanceState)
     enableEdgeToEdge()
     viewModel = ViewModelProvider(this)[EchoChatViewModel::class.java]
+    
+    // Start background notification and calling service
+    val serviceIntent = android.content.Intent(this, com.example.service.EchoNotificationService::class.java)
+    try {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            startForegroundService(serviceIntent)
+        } else {
+            startService(serviceIntent)
+        }
+    } catch (e: Exception) {
+        e.printStackTrace()
+    }
+
     setContent {
       EchoChatApp(viewModel)
     }

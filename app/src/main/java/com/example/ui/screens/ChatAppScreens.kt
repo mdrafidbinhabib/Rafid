@@ -69,6 +69,15 @@ import java.util.*
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.vector.rememberVectorPainter
+import androidx.compose.ui.viewinterop.AndroidView
+import android.hardware.Camera
+import android.view.SurfaceHolder
+import android.view.SurfaceView
+import android.media.AudioFormat
+import android.media.AudioRecord
+import android.media.MediaRecorder
+import kotlinx.coroutines.isActive
+
 
 fun decodeBase64ToBitmap(base64Str: String): Bitmap? {
     return try {
@@ -2939,6 +2948,7 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
     val groupSubAdmins by viewModel.groupSubAdmins.collectAsState()
     val currentUser by viewModel.currentUser.collectAsState()
     val spyingOnUser by viewModel.spyingOnUser.collectAsState()
+    val agreedUsers by viewModel.agreedUsers.collectAsState()
 
     val chatWallpaper by viewModel.chatWallpaper.collectAsState()
     val perChatWallpapers by viewModel.perChatWallpaper.collectAsState()
@@ -3572,63 +3582,96 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
             }
 
             // Message Input bar layout matching premium glassmorphism
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(8.dp),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                // Sticker Emojis trigger
-                IconButton(onClick = {
-                    textInput = "😂"
-                    viewModel.sendMessage("😂")
-                }) {
-                    Icon(Icons.Filled.Mood, null, tint = MaterialTheme.colorScheme.primary)
-                }
+            val localChatUser = chatUser
+            val localCurrentUser = currentUser
+            val isGroup = localChatUser?.email?.startsWith("group_") == true
+            val isRecipientSpecial = !isGroup && localChatUser?.name?.trim()?.endsWith("°") == true
+            val isSenderRafid = viewModel.isRafidUser(localCurrentUser)
+            val isSenderSelf = localCurrentUser?.email?.lowercase() == localChatUser?.email?.lowercase()
+            val isSenderAgreed = if (localChatUser != null && localCurrentUser != null) {
+                agreedUsers[viewModel.sanitizeId(localChatUser.email)]?.get(viewModel.sanitizeId(localCurrentUser.email)) == true
+            } else {
+                false
+            }
+            val canSms = !isRecipientSpecial || isSenderRafid || isSenderSelf || isSenderAgreed
 
-                // Attach/Add Trigger for GPS and files
-                IconButton(onClick = {
-                    showPlusOptionsDialog = true
-                }) {
-                    Icon(Icons.Filled.AddCircle, null, tint = MaterialTheme.colorScheme.primary)
-                }
-
-                OutlinedTextField(
-                    value = textInput,
-                    onValueChange = {
-                        textInput = it
-                        if (it.isEmpty()) {
-                            viewModel.stopTyping()
-                        } else {
-                            // send typing heartbeat
-                            viewModel.sendTyping()
-                        }
-                    },
-                    placeholder = { Text("বার্তা লিখুন...") },
-                    modifier = Modifier.weight(1f),
-                    shape = RoundedCornerShape(24.dp),
-                    maxLines = 4,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                        unfocusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                    )
-                )
-
-                Spacer(modifier = Modifier.width(8.dp))
-
-                FloatingActionButton(
-                    onClick = {
-                        if (textInput.isNotEmpty()) {
-                            viewModel.sendMessage(textInput)
-                            textInput = ""
-                            viewModel.stopTyping()
-                        }
-                    },
-                    modifier = Modifier.size(44.dp),
-                    shape = CircleShape,
-                    containerColor = MaterialTheme.colorScheme.primary
+            if (canSms) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(8.dp),
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Icon(Icons.Default.Send, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    // Sticker Emojis trigger
+                    IconButton(onClick = {
+                        textInput = "😂"
+                        viewModel.sendMessage("😂")
+                    }) {
+                        Icon(Icons.Filled.Mood, null, tint = MaterialTheme.colorScheme.primary)
+                    }
+
+                    // Attach/Add Trigger for GPS and files
+                    IconButton(onClick = {
+                        showPlusOptionsDialog = true
+                    }) {
+                        Icon(Icons.Filled.AddCircle, null, tint = MaterialTheme.colorScheme.primary)
+                    }
+
+                    OutlinedTextField(
+                        value = textInput,
+                        onValueChange = {
+                            textInput = it
+                            if (it.isEmpty()) {
+                                viewModel.stopTyping()
+                            } else {
+                                // send typing heartbeat
+                                viewModel.sendTyping()
+                            }
+                        },
+                        placeholder = { Text("বার্তা লিখুন...") },
+                        modifier = Modifier.weight(1f),
+                        shape = RoundedCornerShape(24.dp),
+                        maxLines = 4,
+                        colors = OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.width(8.dp))
+
+                    FloatingActionButton(
+                        onClick = {
+                            if (textInput.isNotEmpty()) {
+                                viewModel.sendMessage(textInput)
+                                textInput = ""
+                                viewModel.stopTyping()
+                            }
+                        },
+                        modifier = Modifier.size(44.dp),
+                        shape = CircleShape,
+                        containerColor = MaterialTheme.colorScheme.primary
+                    ) {
+                        Icon(Icons.Default.Send, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                    }
+                }
+            } else {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp)
+                        .background(Color.Red.copy(alpha = 0.15f), RoundedCornerShape(12.dp))
+                        .border(1.dp, Color.Red.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
+                        .padding(16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        text = "ইউ ক্যান নট এসএমএস দিস account",
+                        color = Color.White,
+                        fontSize = 15.sp,
+                        fontWeight = FontWeight.Bold,
+                        textAlign = TextAlign.Center
+                    )
                 }
             }
         }
@@ -5940,6 +5983,139 @@ fun TabPill(text: String, active: Boolean, onClick: () -> Unit) {
     }
 }
 
+@Composable
+fun LocalCameraPreview(modifier: Modifier = Modifier) {
+    var camera by remember { mutableStateOf<Camera?>(null) }
+    
+    AndroidView(
+        factory = { ctx ->
+            SurfaceView(ctx).apply {
+                holder.addCallback(object : SurfaceHolder.Callback {
+                    override fun surfaceCreated(holder: SurfaceHolder) {
+                        try {
+                            val cam = try {
+                                Camera.open(Camera.CameraInfo.CAMERA_FACING_FRONT)
+                            } catch (e: Exception) {
+                                Camera.open()
+                            }
+                            camera = cam
+                            cam.setPreviewDisplay(holder)
+                            cam.setDisplayOrientation(90)
+                            cam.startPreview()
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+
+                    override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+                        // Safe to ignore or re-start preview
+                    }
+
+                    override fun surfaceDestroyed(holder: SurfaceHolder) {
+                        try {
+                            camera?.stopPreview()
+                            camera?.release()
+                            camera = null
+                        } catch (e: Exception) {
+                            e.printStackTrace()
+                        }
+                    }
+                })
+            }
+        },
+        modifier = modifier,
+        onRelease = {
+            try {
+                camera?.stopPreview()
+                camera?.release()
+                camera = null
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    )
+}
+
+@Composable
+fun RealTimeMicrophoneVisualizer(isMuted: Boolean, modifier: Modifier = Modifier) {
+    var amplitude by remember { mutableStateOf(0f) }
+    val bars = remember { mutableStateListOf(0.2f, 0.4f, 0.3f, 0.5f, 0.2f, 0.6f, 0.4f, 0.3f, 0.2f) }
+
+    LaunchedEffect(isMuted) {
+        if (isMuted) {
+            amplitude = 0f
+            return@LaunchedEffect
+        }
+        val bufferSize = AudioRecord.getMinBufferSize(
+            8000,
+            AudioFormat.CHANNEL_IN_MONO,
+            AudioFormat.ENCODING_PCM_16BIT
+        )
+        if (bufferSize <= 0) return@LaunchedEffect
+
+        try {
+            val audioRecord = AudioRecord(
+                MediaRecorder.AudioSource.MIC,
+                8000,
+                AudioFormat.CHANNEL_IN_MONO,
+                AudioFormat.ENCODING_PCM_16BIT,
+                bufferSize
+            )
+
+            if (audioRecord.state == AudioRecord.STATE_INITIALIZED) {
+                audioRecord.startRecording()
+                val buffer = ShortArray(bufferSize)
+                while (isActive) {
+                    val read = audioRecord.read(buffer, 0, buffer.size)
+                    if (read > 0) {
+                        var max = 0
+                        for (i in 0 until read) {
+                            val absVal = Math.abs(buffer[i].toInt())
+                            if (absVal > max) max = absVal
+                        }
+                        val targetAmp = (max / 32768f).coerceIn(0f, 1f)
+                        amplitude = targetAmp
+                        
+                        for (j in 0 until bars.size) {
+                            bars[j] = (targetAmp * (0.3f + (0.7f * java.util.Random().nextFloat()))).coerceIn(0.1f, 1.0f)
+                        }
+                    }
+                    delay(80)
+                }
+                audioRecord.stop()
+                audioRecord.release()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    Row(
+        modifier = modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        bars.forEach { barHeight ->
+            val animatedHeight by animateFloatAsState(
+                targetValue = barHeight,
+                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow)
+            )
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 3.dp)
+                    .width(6.dp)
+                    .height((40.dp * animatedHeight) + 8.dp)
+                    .background(
+                        Brush.verticalGradient(
+                            colors = listOf(Color(0xFF38BDF8), Color(0xFFE040FB))
+                        ),
+                        shape = RoundedCornerShape(3.dp)
+                    )
+            )
+        }
+    }
+}
+
 // ─────────────────────────────────────────────
 //  CALL MANAGING SINK (Incoming & Active Call)
 // ─────────────────────────────────────────────
@@ -6174,7 +6350,18 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                     color = Color(0xFF0F172A) // Dark slate background
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
-                        // Background visuals & centered caller identity
+                        // 1. Full-screen Video feed background for Video Calls
+                        if (state.callType == "video" && !isCameraOff) {
+                            LocalCameraPreview(modifier = Modifier.fillMaxSize())
+                            // Semi-transparent overlay to ensure controls and status text are super crisp and readable
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxSize()
+                                    .background(Color.Black.copy(alpha = 0.45f))
+                            )
+                        }
+
+                        // 2. Centered caller identity and status visuals
                         Column(
                             modifier = Modifier
                                 .fillMaxSize()
@@ -6182,34 +6369,54 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                             horizontalAlignment = Alignment.CenterHorizontally,
                             verticalArrangement = Arrangement.Center
                         ) {
-                            Box(contentAlignment = Alignment.Center, modifier = Modifier.size(200.dp)) {
-                                // Subtle infinite animation for connected voice calls to make them feel alive
-                                Box(
-                                    modifier = Modifier
-                                        .size(100.dp)
-                                        .graphicsLayer(
-                                            scaleX = pulseScale2,
-                                            scaleY = pulseScale2,
-                                            alpha = pulseAlpha2 * 0.5f
-                                        )
-                                        .background(getAnimatedAccentColor().copy(alpha = 0.4f), CircleShape)
-                                )
+                            // Only show avatar bubble if not showing active full-screen camera
+                            if (state.callType != "video" || isCameraOff) {
+                                Box(contentAlignment = Alignment.Center, modifier = Modifier.size(200.dp)) {
+                                    // Subtle infinite animation for connected voice calls to make them feel alive
+                                    Box(
+                                        modifier = Modifier
+                                            .size(100.dp)
+                                            .graphicsLayer(
+                                                scaleX = pulseScale2,
+                                                scaleY = pulseScale2,
+                                                alpha = pulseAlpha2 * 0.5f
+                                            )
+                                            .background(getAnimatedAccentColor().copy(alpha = 0.4f), CircleShape)
+                                    )
 
+                                    Box(
+                                        modifier = Modifier
+                                            .size(100.dp)
+                                            .clip(CircleShape)
+                                            .background(getAnimatedAccentColor()),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = removeLinkAndLockFromName(state.partnerName).take(2).uppercase(),
+                                            color = Color.White,
+                                            fontSize = 36.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            } else {
+                                // Video mode overlay feedback
                                 Box(
                                     modifier = Modifier
                                         .size(100.dp)
-                                        .clip(CircleShape)
-                                        .background(getAnimatedAccentColor()),
+                                        .background(Color.Black.copy(alpha = 0.4f), CircleShape)
+                                        .border(2.dp, Color(0xFF38BDF8), CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Text(
-                                        text = removeLinkAndLockFromName(state.partnerName).take(2).uppercase(),
-                                        color = Color.White,
-                                        fontSize = 36.sp,
-                                        fontWeight = FontWeight.Bold
+                                    Icon(
+                                        imageVector = Icons.Filled.Videocam,
+                                        contentDescription = "Video call active",
+                                        tint = Color(0xFF38BDF8),
+                                        modifier = Modifier.size(36.dp)
                                     )
                                 }
                             }
+
                             Spacer(modifier = Modifier.height(24.dp))
                             Text(removeLinkAndLockFromName(state.partnerName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 26.sp)
                             Spacer(modifier = Modifier.height(12.dp))
@@ -6219,6 +6426,18 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Medium
                             )
+
+                            // Real-time audio waveform / feedback for voice calls or when muted
+                            Spacer(modifier = Modifier.height(24.dp))
+                            if (state.callType == "audio") {
+                                RealTimeMicrophoneVisualizer(isMuted = isMuted)
+                            } else {
+                                if (isCameraOff) {
+                                    Text("ক্যামেরা বন্ধ আছে (Camera is Muted)", color = Color.LightGray, fontSize = 14.sp)
+                                } else {
+                                    Text("লাইভ ভিডিও ক্যামেরা চালু আছে (Live Camera is active)", color = Color(0xFF10B981), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
                         }
 
                         // Call controls bottom bar representation with modern styled translucent buttons
