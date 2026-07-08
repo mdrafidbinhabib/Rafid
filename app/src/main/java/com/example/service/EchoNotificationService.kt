@@ -146,10 +146,16 @@ class EchoNotificationService : Service() {
         }
 
         if (callsVal != null) {
+            val hiddenChats = try {
+                LocalStorage.getHiddenChats(applicationContext)
+            } catch (e: Exception) {
+                emptyMap<String, String>()
+            }
             for ((rId, callMap) in callsVal) {
                 val roomId = rId as? String ?: continue
                 val map = callMap as? Map<*, *> ?: continue
                 val calleeId = map["calleeId"] as? String ?: ""
+                val callerId = map["callerId"] as? String ?: ""
                 val callerName = map["callerName"] as? String ?: "Someone"
                 val status = map["status"] as? String ?: ""
                 val ts = (map["ts"] as? Number)?.toLong() ?: 0L
@@ -158,7 +164,8 @@ class EchoNotificationService : Service() {
                 if (sanitizeId(calleeId) == userKey && status == "calling" && (System.currentTimeMillis() - ts < 45000)) {
                     if (!notifiedCalls.contains(roomId)) {
                         notifiedCalls.add(roomId)
-                        showCallNotification(roomId, callerName, callType)
+                        val isCallerHidden = hiddenChats.keys.any { it.equals(callerId, ignoreCase = true) }
+                        showCallNotification(roomId, callerName, callType, isHidden = isCallerHidden)
                     }
                 }
             }
@@ -184,6 +191,12 @@ class EchoNotificationService : Service() {
                 }
             }.sortedBy { it.second }
 
+            val hiddenChats = try {
+                LocalStorage.getHiddenChats(applicationContext)
+            } catch (e: Exception) {
+                emptyMap<String, String>()
+            }
+
             for ((msg, time) in parsedMsgs) {
                 val msgId = msg.id ?: msg.timestamp
                 val senderEmail = msg.sender?.lowercase() ?: ""
@@ -193,8 +206,13 @@ class EchoNotificationService : Service() {
                 if (participants.contains(myEmail) && senderEmail != myEmail && time > lastCheckedMessageTs) {
                     if (!notifiedMessages.contains(msgId)) {
                         notifiedMessages.add(msgId)
-                        val senderName = msg.user ?: senderEmail.split("@")[0]
-                        showChatNotification(senderName, msg.message)
+                        val isSenderHidden = hiddenChats.keys.any { it.equals(senderEmail, ignoreCase = true) }
+                        if (isSenderHidden) {
+                            showChatNotification("নিউ এসএমএস", "নিউ এসএমএস", isHidden = true)
+                        } else {
+                            val senderName = msg.user ?: senderEmail.split("@")[0]
+                            showChatNotification(senderName, msg.message, isHidden = false)
+                        }
                     }
                 }
             }
@@ -209,7 +227,7 @@ class EchoNotificationService : Service() {
         }
     }
 
-    private fun showCallNotification(roomId: String, callerName: String, callType: String) {
+    private fun showCallNotification(roomId: String, callerName: String, callType: String, isHidden: Boolean) {
         // Wake lock to turn on the screen for incoming calls
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         val wakeLock = pm.newWakeLock(
@@ -229,9 +247,12 @@ class EchoNotificationService : Service() {
         )
 
         val typeText = if (callType == "video") "ভিডিও কল" else "ভয়েস কল"
+        val titleText = "📞 ইনকামিং কল"
+        val contentText = if (isHidden) "ইনকামিং $typeText" else "$callerName আপনাকে $typeText দিচ্ছেন"
+
         val notification = NotificationCompat.Builder(this, CHANNEL_CALLS_ID)
-            .setContentTitle("📞 ইনকামিং কল")
-            .setContentText("$callerName আপনাকে $typeText দিচ্ছেন")
+            .setContentTitle(titleText)
+            .setContentText(contentText)
             .setSmallIcon(com.example.R.mipmap.ic_launcher)
             .setPriority(NotificationCompat.PRIORITY_MAX)
             .setCategory(NotificationCompat.CATEGORY_CALL)
@@ -245,7 +266,7 @@ class EchoNotificationService : Service() {
         notificationManager.notify(roomId.hashCode(), notification)
     }
 
-    private fun showChatNotification(senderName: String, text: String) {
+    private fun showChatNotification(senderName: String, text: String, isHidden: Boolean) {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -256,9 +277,12 @@ class EchoNotificationService : Service() {
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
 
+        val title = if (isHidden) "নতুন বার্তা" else senderName
+        val content = if (isHidden) "নিউ এসএমএস" else text
+
         val notification = NotificationCompat.Builder(this, CHANNEL_CHATS_ID)
-            .setContentTitle(senderName)
-            .setContentText(text)
+            .setContentTitle(title)
+            .setContentText(content)
             .setSmallIcon(com.example.R.mipmap.ic_launcher)
             .setPriority(NotificationCompat.PRIORITY_HIGH)
             .setCategory(NotificationCompat.CATEGORY_MESSAGE)
@@ -268,7 +292,7 @@ class EchoNotificationService : Service() {
             .build()
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(text.hashCode() + senderName.hashCode(), notification)
+        notificationManager.notify(content.hashCode() + title.hashCode(), notification)
     }
 
     private fun sanitizeId(email: String): String {

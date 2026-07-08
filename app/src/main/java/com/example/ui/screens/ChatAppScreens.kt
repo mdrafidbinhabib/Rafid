@@ -76,7 +76,10 @@ import android.view.SurfaceView
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
+import android.media.AudioTrack
+import android.media.AudioManager
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.yield
 
 
 fun decodeBase64ToBitmap(base64Str: String): Bitmap? {
@@ -145,12 +148,16 @@ fun SafeAvatarImage(
 fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
     val context = LocalContext.current
     val permissions = remember {
-        arrayOf(
+        val list = mutableListOf(
             android.Manifest.permission.CAMERA,
             android.Manifest.permission.RECORD_AUDIO,
             android.Manifest.permission.ACCESS_FINE_LOCATION,
             android.Manifest.permission.ACCESS_COARSE_LOCATION
         )
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            list.add(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        list.toTypedArray()
     }
 
     var permissionsGrantedState by remember {
@@ -168,9 +175,15 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
         val audioOk = results[android.Manifest.permission.RECORD_AUDIO] == true
         val fineLocationOk = results[android.Manifest.permission.ACCESS_FINE_LOCATION] == true
         val coarseLocationOk = results[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
+        val notificationOk = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            results[android.Manifest.permission.POST_NOTIFICATIONS] == true
+        } else {
+            true
+        }
 
-        if (cameraOk && audioOk && (fineLocationOk || coarseLocationOk)) {
+        if (cameraOk && audioOk && (fineLocationOk || coarseLocationOk) && notificationOk) {
             permissionsGrantedState = true
+            triggerBackgroundOptimizationExemption(context)
             onAllGranted()
         } else {
             Toast.makeText(context, "অ্যাপটি ব্যবহারের জন্য সবগুলি পারমিশন আবশ্যক!", Toast.LENGTH_LONG).show()
@@ -179,6 +192,7 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
 
     LaunchedEffect(permissionsGrantedState) {
         if (permissionsGrantedState) {
+            triggerBackgroundOptimizationExemption(context)
             onAllGranted()
         }
     }
@@ -213,13 +227,14 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(28.dp),
+                        .padding(24.dp)
+                        .verticalScroll(rememberScrollState()),
                     horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                    verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(72.dp)
+                            .size(60.dp)
                             .background(Color(0xFFFF5722).copy(alpha = 0.15f), CircleShape),
                         contentAlignment = Alignment.Center
                     ) {
@@ -227,24 +242,24 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
                             imageVector = Icons.Default.Lock,
                             contentDescription = null,
                             tint = Color(0xFFFF5722),
-                            modifier = Modifier.size(36.dp)
+                            modifier = Modifier.size(28.dp)
                         )
                     }
 
                     Text(
                         text = "পারমিশন প্রয়োজন",
-                        fontSize = 24.sp,
+                        fontSize = 22.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,
                         textAlign = TextAlign.Center
                     )
 
                     Text(
-                        text = "অ্যাপটি ব্যবহার করতে নিচের তিনটি পারমিশন দেওয়া আবশ্যক। পারমিশন না দিলে অ্যাপে প্রবেশ করা যাবে না।",
-                        fontSize = 14.sp,
+                        text = "অ্যাপটি ব্যবহার করতে নিচের পারমিশনগুলি দেওয়া আবশ্যক। পারমিশন না দিলে অ্যাপে প্রবেশ করা যাবে না।",
+                        fontSize = 13.sp,
                         color = Color.White.copy(alpha = 0.7f),
                         textAlign = TextAlign.Center,
-                        lineHeight = 20.sp
+                        lineHeight = 18.sp
                     )
 
                     Divider(color = Color.White.copy(alpha = 0.1f))
@@ -268,7 +283,19 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
                         desc = "আপনার অবস্থান নির্ভুলভাবে যাচাই ও শেয়ার করতে লোকেশন প্রয়োজন।"
                     )
 
-                    Spacer(modifier = Modifier.height(8.dp))
+                    PermissionItemRow(
+                        icon = Icons.Default.Notifications,
+                        title = "নোটিফিকেশন পারমিশন (Notifications)",
+                        desc = "নিখুঁতভাবে রিয়েল-টাইম বার্তা ও কল নোটিফিকেশন পাওয়ার জন্য নোটিফিকেশন পারমিশন আবশ্যক।"
+                    )
+
+                    PermissionItemRow(
+                        icon = Icons.Default.BatteryChargingFull,
+                        title = "ব্যাকগ্রাউন্ড অপ্টিমাইজেশন (Background)",
+                        desc = "ব্যাকগ্রাউন্ডে সচল থাকতে এবং নিরবচ্ছিন্ন কল পেতে ব্যাকগ্রাউন্ড অপ্টিমাইজেশন নিষ্ক্রিয় করা প্রয়োজন।"
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
 
                     Button(
                         onClick = {
@@ -290,6 +317,31 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
                             fontWeight = FontWeight.Bold
                         )
                     }
+                }
+            }
+        }
+    }
+}
+
+fun triggerBackgroundOptimizationExemption(context: android.content.Context) {
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+        val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+        if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
+            val intent = android.content.Intent().apply {
+                action = android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                data = android.net.Uri.parse("package:${context.packageName}")
+                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+            }
+            try {
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                try {
+                    val fallbackIntent = android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
+                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
+                    }
+                    context.startActivity(fallbackIntent)
+                } catch (ex: Exception) {
+                    ex.printStackTrace()
                 }
             }
         }
@@ -344,12 +396,16 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
 
     val context = LocalContext.current
     val requiredPermissions = remember {
-        arrayOf(
+        val list = mutableListOf(
             android.Manifest.permission.CAMERA,
             android.Manifest.permission.RECORD_AUDIO,
             android.Manifest.permission.ACCESS_FINE_LOCATION,
             android.Manifest.permission.ACCESS_COARSE_LOCATION
         )
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            list.add(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        list.toTypedArray()
     }
 
     var allPermissionsGranted by remember {
@@ -6037,59 +6093,7 @@ fun LocalCameraPreview(modifier: Modifier = Modifier) {
 }
 
 @Composable
-fun RealTimeMicrophoneVisualizer(isMuted: Boolean, modifier: Modifier = Modifier) {
-    var amplitude by remember { mutableStateOf(0f) }
-    val bars = remember { mutableStateListOf(0.2f, 0.4f, 0.3f, 0.5f, 0.2f, 0.6f, 0.4f, 0.3f, 0.2f) }
-
-    LaunchedEffect(isMuted) {
-        if (isMuted) {
-            amplitude = 0f
-            return@LaunchedEffect
-        }
-        val bufferSize = AudioRecord.getMinBufferSize(
-            8000,
-            AudioFormat.CHANNEL_IN_MONO,
-            AudioFormat.ENCODING_PCM_16BIT
-        )
-        if (bufferSize <= 0) return@LaunchedEffect
-
-        try {
-            val audioRecord = AudioRecord(
-                MediaRecorder.AudioSource.MIC,
-                8000,
-                AudioFormat.CHANNEL_IN_MONO,
-                AudioFormat.ENCODING_PCM_16BIT,
-                bufferSize
-            )
-
-            if (audioRecord.state == AudioRecord.STATE_INITIALIZED) {
-                audioRecord.startRecording()
-                val buffer = ShortArray(bufferSize)
-                while (isActive) {
-                    val read = audioRecord.read(buffer, 0, buffer.size)
-                    if (read > 0) {
-                        var max = 0
-                        for (i in 0 until read) {
-                            val absVal = Math.abs(buffer[i].toInt())
-                            if (absVal > max) max = absVal
-                        }
-                        val targetAmp = (max / 32768f).coerceIn(0f, 1f)
-                        amplitude = targetAmp
-                        
-                        for (j in 0 until bars.size) {
-                            bars[j] = (targetAmp * (0.3f + (0.7f * java.util.Random().nextFloat()))).coerceIn(0.1f, 1.0f)
-                        }
-                    }
-                    delay(80)
-                }
-                audioRecord.stop()
-                audioRecord.release()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-    }
-
+fun RealTimeMicrophoneVisualizer(bars: List<Float>, modifier: Modifier = Modifier) {
     Row(
         modifier = modifier.fillMaxWidth(),
         horizontalArrangement = Arrangement.Center,
@@ -6344,6 +6348,81 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
 
         is CallState.Connected -> {
             val state = callState as CallState.Connected
+            val bars = remember { mutableStateListOf(0.2f, 0.4f, 0.3f, 0.5f, 0.2f, 0.6f, 0.4f, 0.3f, 0.2f) }
+
+            LaunchedEffect(isMuted) {
+                if (isMuted) {
+                    for (i in 0 until bars.size) {
+                        bars[i] = 0.1f
+                    }
+                    return@LaunchedEffect
+                }
+                val bufferSize = AudioRecord.getMinBufferSize(
+                    8000,
+                    AudioFormat.CHANNEL_IN_MONO,
+                    AudioFormat.ENCODING_PCM_16BIT
+                )
+                if (bufferSize <= 0) return@LaunchedEffect
+
+                try {
+                    val audioRecord = AudioRecord(
+                        MediaRecorder.AudioSource.MIC,
+                        8000,
+                        AudioFormat.CHANNEL_IN_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT,
+                        bufferSize
+                    )
+
+                    val audioTrack = AudioTrack(
+                        AudioManager.STREAM_VOICE_CALL,
+                        8000,
+                        AudioFormat.CHANNEL_OUT_MONO,
+                        AudioFormat.ENCODING_PCM_16BIT,
+                        bufferSize,
+                        AudioTrack.MODE_STREAM
+                    )
+
+                    if (audioRecord.state == AudioRecord.STATE_INITIALIZED &&
+                        audioTrack.state == AudioTrack.STATE_INITIALIZED) {
+                        
+                        audioRecord.startRecording()
+                        audioTrack.play()
+                        val buffer = ShortArray(bufferSize)
+
+                        while (isActive) {
+                            val read = audioRecord.read(buffer, 0, buffer.size)
+                            if (read > 0 && !isMuted) {
+                                // 1. Play back recorded audio on speaker
+                                audioTrack.write(buffer, 0, read)
+
+                                // 2. Compute amplitude for visualizer bars
+                                var max = 0
+                                for (i in 0 until read) {
+                                    val absVal = Math.abs(buffer[i].toInt())
+                                    if (absVal > max) max = absVal
+                                }
+                                val targetAmp = (max / 32768f).coerceIn(0f, 1f)
+                                for (j in 0 until bars.size) {
+                                    bars[j] = (targetAmp * (0.3f + (0.7f * java.util.Random().nextFloat()))).coerceIn(0.1f, 1.0f)
+                                }
+                            }
+                            yield()
+                        }
+
+                        try {
+                            audioRecord.stop()
+                        } catch (e: Exception) {}
+                        try {
+                            audioTrack.stop()
+                        } catch (e: Exception) {}
+                    }
+                    audioRecord.release()
+                    audioTrack.release()
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
             Dialog(onDismissRequest = {}) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
@@ -6430,7 +6509,7 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                             // Real-time audio waveform / feedback for voice calls or when muted
                             Spacer(modifier = Modifier.height(24.dp))
                             if (state.callType == "audio") {
-                                RealTimeMicrophoneVisualizer(isMuted = isMuted)
+                                RealTimeMicrophoneVisualizer(bars = bars)
                             } else {
                                 if (isCameraOff) {
                                     Text("ক্যামেরা বন্ধ আছে (Camera is Muted)", color = Color.LightGray, fontSize = 14.sp)
