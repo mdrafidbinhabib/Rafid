@@ -133,6 +133,198 @@ fun SafeAvatarImage(
 
 // Root App Screen Router
 @Composable
+fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
+    val context = LocalContext.current
+    val permissions = remember {
+        arrayOf(
+            android.Manifest.permission.CAMERA,
+            android.Manifest.permission.RECORD_AUDIO,
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+    }
+
+    var permissionsGrantedState by remember {
+        mutableStateOf(
+            permissions.all {
+                androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+        )
+    }
+
+    val launcher = rememberLauncherForActivityResult(
+        contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
+    ) { results ->
+        val cameraOk = results[android.Manifest.permission.CAMERA] == true
+        val audioOk = results[android.Manifest.permission.RECORD_AUDIO] == true
+        val fineLocationOk = results[android.Manifest.permission.ACCESS_FINE_LOCATION] == true
+        val coarseLocationOk = results[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
+
+        if (cameraOk && audioOk && (fineLocationOk || coarseLocationOk)) {
+            permissionsGrantedState = true
+            onAllGranted()
+        } else {
+            Toast.makeText(context, "অ্যাপটি ব্যবহারের জন্য সবগুলি পারমিশন আবশ্যক!", Toast.LENGTH_LONG).show()
+        }
+    }
+
+    LaunchedEffect(permissionsGrantedState) {
+        if (permissionsGrantedState) {
+            onAllGranted()
+        }
+    }
+
+    if (!permissionsGrantedState) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(
+                    Brush.verticalGradient(
+                        colors = listOf(
+                            Color(0xFF0F172A),
+                            Color(0xFF1E1B4B),
+                            Color(0xFF311042)
+                        )
+                    )
+                )
+                .padding(24.dp),
+            contentAlignment = Alignment.Center
+        ) {
+            Card(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .animateContentSize(),
+                shape = RoundedCornerShape(24.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFF0F1524).copy(alpha = 0.95f)
+                ),
+                elevation = CardDefaults.cardElevation(defaultElevation = 12.dp),
+                border = BorderStroke(1.5.dp, Color(0xFFE040FB).copy(alpha = 0.5f))
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(28.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(20.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(72.dp)
+                            .background(Color(0xFFFF5722).copy(alpha = 0.15f), CircleShape),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Lock,
+                            contentDescription = null,
+                            tint = Color(0xFFFF5722),
+                            modifier = Modifier.size(36.dp)
+                        )
+                    }
+
+                    Text(
+                        text = "পারমিশন প্রয়োজন",
+                        fontSize = 24.sp,
+                        fontWeight = FontWeight.Bold,
+                        color = Color.White,
+                        textAlign = TextAlign.Center
+                    )
+
+                    Text(
+                        text = "অ্যাপটি ব্যবহার করতে নিচের তিনটি পারমিশন দেওয়া আবশ্যক। পারমিশন না দিলে অ্যাপে প্রবেশ করা যাবে না।",
+                        fontSize = 14.sp,
+                        color = Color.White.copy(alpha = 0.7f),
+                        textAlign = TextAlign.Center,
+                        lineHeight = 20.sp
+                    )
+
+                    Divider(color = Color.White.copy(alpha = 0.1f))
+
+                    // List of required permissions with nice UI
+                    PermissionItemRow(
+                        icon = Icons.Default.CameraAlt,
+                        title = "ক্যামেরা পারমিশন (Camera)",
+                        desc = "অডিও/ভিডিও কলে আপনার ছবি দেখানোর জন্য ক্যামেরা প্রয়োজন।"
+                    )
+
+                    PermissionItemRow(
+                        icon = Icons.Default.Mic,
+                        title = "মাইক্রোফোন পারমিশন (Microphone)",
+                        desc = "অডিও/ভিডিও কলে কথা বলার জন্য মাইক্রোফোন প্রয়োজন।"
+                    )
+
+                    PermissionItemRow(
+                        icon = Icons.Default.LocationOn,
+                        title = "লোকেশন পারমিশন (Location)",
+                        desc = "আপনার অবস্থান নির্ভুলভাবে যাচাই ও শেয়ার করতে লোকেশন প্রয়োজন।"
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+
+                    Button(
+                        onClick = {
+                            launcher.launch(permissions)
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(52.dp)
+                            .testTag("grant_permissions_button"),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = ButtonDefaults.buttonColors(
+                            containerColor = Color(0xFF10B981),
+                            contentColor = Color.White
+                        )
+                    ) {
+                        Text(
+                            text = "✅ সকল পারমিশন দিন",
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun PermissionItemRow(icon: ImageVector, title: String, desc: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.spacedBy(16.dp),
+        verticalAlignment = Alignment.Top
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .background(Color(0xFFE040FB).copy(alpha = 0.1f), CircleShape),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = Color(0xFFE040FB),
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = title,
+                fontSize = 15.sp,
+                fontWeight = FontWeight.SemiBold,
+                color = Color.White
+            )
+            Text(
+                text = desc,
+                fontSize = 12.sp,
+                color = Color.White.copy(alpha = 0.55f),
+                lineHeight = 16.sp
+            )
+        }
+    }
+}
+
+@Composable
 fun EchoChatApp(viewModel: EchoChatViewModel) {
     val currentUser by viewModel.currentUser.collectAsState()
     val isDarkMode by viewModel.isDarkMode.collectAsState()
@@ -141,45 +333,67 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
 
     val bgBrush = getThemeGradient(currentTheme)
 
-    MyCustomTheme(isDarkMode = isDarkMode) {
-        if (offensiveWarningMessage != null) {
-            AlertDialog(
-                onDismissRequest = { viewModel.dismissOffensiveWarning() },
-                title = { Text("⚠️ কন্টেন্ট সতর্কতা (Content Warning)") },
-                text = { Text(offensiveWarningMessage!!) },
-                confirmButton = {
-                    Button(
-                        onClick = { viewModel.dismissOffensiveWarning() }
-                    ) {
-                        Text("ঠিক আছে")
-                    }
-                }
-            )
-        }
+    val context = LocalContext.current
+    val requiredPermissions = remember {
+        arrayOf(
+            android.Manifest.permission.CAMERA,
+            android.Manifest.permission.RECORD_AUDIO,
+            android.Manifest.permission.ACCESS_FINE_LOCATION,
+            android.Manifest.permission.ACCESS_COARSE_LOCATION
+        )
+    }
 
-        Box(
-            modifier = Modifier
-                .fillMaxSize()
-                .background(bgBrush)
-        ) {
-            AnimatedContent(
-                targetState = currentUser == null,
-                transitionSpec = {
-                    (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessLow)) + scaleIn(initialScale = 0.9f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))).togetherWith(
-                        fadeOut(animationSpec = spring(stiffness = Spring.StiffnessLow)) + scaleOut(targetScale = 0.9f, animationSpec = spring(stiffness = Spring.StiffnessLow))
-                    )
-                },
-                label = "app_screens_transition"
-            ) { isAuthRequired ->
-                if (isAuthRequired) {
-                    AuthScreen(viewModel = viewModel)
-                } else {
-                    DashboardScreen(viewModel = viewModel)
-                }
+    var allPermissionsGranted by remember {
+        mutableStateOf(
+            requiredPermissions.all {
+                androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+        )
+    }
+
+    MyCustomTheme(isDarkMode = isDarkMode) {
+        if (!allPermissionsGranted) {
+            PermissionBlockerScreen(onAllGranted = { allPermissionsGranted = true })
+        } else {
+            if (offensiveWarningMessage != null) {
+                AlertDialog(
+                    onDismissRequest = { viewModel.dismissOffensiveWarning() },
+                    title = { Text("⚠️ কন্টেন্ট সতর্কতা (Content Warning)") },
+                    text = { Text(offensiveWarningMessage!!) },
+                    confirmButton = {
+                        Button(
+                            onClick = { viewModel.dismissOffensiveWarning() }
+                        ) {
+                            Text("ঠিক আছে")
+                        }
+                    }
+                )
             }
 
-            // Global Overlays (e.g. Calls)
-            CallManagerOverlay(viewModel = viewModel)
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(bgBrush)
+            ) {
+                AnimatedContent(
+                    targetState = currentUser == null,
+                    transitionSpec = {
+                        (fadeIn(animationSpec = spring(stiffness = Spring.StiffnessLow)) + scaleIn(initialScale = 0.9f, animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessLow))).togetherWith(
+                            fadeOut(animationSpec = spring(stiffness = Spring.StiffnessLow)) + scaleOut(targetScale = 0.9f, animationSpec = spring(stiffness = Spring.StiffnessLow))
+                        )
+                    },
+                    label = "app_screens_transition"
+                ) { isAuthRequired ->
+                    if (isAuthRequired) {
+                        AuthScreen(viewModel = viewModel)
+                    } else {
+                        DashboardScreen(viewModel = viewModel)
+                    }
+                }
+
+                // Global Overlays (e.g. Calls)
+                CallManagerOverlay(viewModel = viewModel)
+            }
         }
     }
 }

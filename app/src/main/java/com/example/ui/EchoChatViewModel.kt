@@ -1359,18 +1359,22 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         _recentChats.value = currentRecents
 
         if (!isGroup) {
-            // Block if recipient name ends with '#'
-            if (chatUser.name.trim().endsWith("#")) {
-                _authError.value = "এই ব্যবহারকারীকে বার্তা পাঠানো সম্ভব নয় কারণ উনার নামের শেষে '#' রয়েছে।"
-                return
-            }
-
-            // Block if recipient name ends with '°', unless the sender is that user themselves or is agreed
-            if (chatUser.name.trim().endsWith("°") && current.email.lowercase() != chatUser.email.lowercase()) {
-                val isSenderAgreed = _agreedUsers.value[sanitizeId(chatUser.email)]?.get(sanitizeId(current.email)) == true
-                if (!isSenderAgreed) {
-                    _authError.value = "এই ব্যবহারকারীকে বার্তা পাঠানো সম্ভব নয়।"
+            val isSenderRafid = isRafidUser(current)
+            val isRecipientRafid = isRafidUser(chatUser)
+            if (!isSenderRafid && !isRecipientRafid) {
+                // Block if recipient name ends with '#'
+                if (chatUser.name.trim().endsWith("#")) {
+                    _authError.value = "এই ব্যবহারকারীকে বার্তা পাঠানো সম্ভব নয় কারণ উনার নামের শেষে '#' রয়েছে।"
                     return
+                }
+
+                // Block if recipient name ends with '°', unless the sender is that user themselves or is agreed
+                if (chatUser.name.trim().endsWith("°") && current.email.lowercase() != chatUser.email.lowercase()) {
+                    val isSenderAgreed = _agreedUsers.value[sanitizeId(chatUser.email)]?.get(sanitizeId(current.email)) == true
+                    if (!isSenderAgreed) {
+                        _authError.value = "এই ব্যবহারকারীকে বার্তা পাঠানো সম্ভব নয়।"
+                        return
+                    }
                 }
             }
 
