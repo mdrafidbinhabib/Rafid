@@ -193,6 +193,16 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
     LaunchedEffect(permissionsGrantedState) {
         if (permissionsGrantedState) {
             triggerBackgroundOptimizationExemption(context)
+            try {
+                val serviceIntent = android.content.Intent(context, com.example.service.EchoNotificationService::class.java)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    context.startForegroundService(serviceIntent)
+                } else {
+                    context.startService(serviceIntent)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
             onAllGranted()
         }
     }
@@ -6126,6 +6136,7 @@ fun RealTimeMicrophoneVisualizer(bars: List<Float>, modifier: Modifier = Modifie
 // ─────────────────────────────────────────────
 @Composable
 fun CallManagerOverlay(viewModel: EchoChatViewModel) {
+    val context = LocalContext.current
     val callState by viewModel.callState.collectAsState()
     val callDuration by viewModel.callDuration.collectAsState()
     val isMuted by viewModel.isCallMuted.collectAsState()
@@ -6358,6 +6369,15 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                     }
                     return@LaunchedEffect
                 }
+                
+                if (androidx.core.content.ContextCompat.checkSelfPermission(
+                        context,
+                        android.Manifest.permission.RECORD_AUDIO
+                    ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                ) {
+                    return@LaunchedEffect
+                }
+
                 val bufferSize = AudioRecord.getMinBufferSize(
                     8000,
                     AudioFormat.CHANNEL_IN_MONO,
@@ -6365,8 +6385,11 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                 )
                 if (bufferSize <= 0) return@LaunchedEffect
 
+                var audioRecord: AudioRecord? = null
+                var audioTrack: AudioTrack? = null
+
                 try {
-                    val audioRecord = AudioRecord(
+                    audioRecord = AudioRecord(
                         MediaRecorder.AudioSource.MIC,
                         8000,
                         AudioFormat.CHANNEL_IN_MONO,
@@ -6374,7 +6397,7 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                         bufferSize
                     )
 
-                    val audioTrack = AudioTrack(
+                    audioTrack = AudioTrack(
                         AudioManager.STREAM_VOICE_CALL,
                         8000,
                         AudioFormat.CHANNEL_OUT_MONO,
@@ -6392,35 +6415,43 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
 
                         while (isActive) {
                             val read = audioRecord.read(buffer, 0, buffer.size)
-                            if (read > 0 && !isMuted) {
-                                // 1. Play back recorded audio on speaker
-                                audioTrack.write(buffer, 0, read)
+                            if (read > 0) {
+                                if (!isMuted) {
+                                    // 1. Play back recorded audio on speaker
+                                    audioTrack.write(buffer, 0, read)
 
-                                // 2. Compute amplitude for visualizer bars
-                                var max = 0
-                                for (i in 0 until read) {
-                                    val absVal = Math.abs(buffer[i].toInt())
-                                    if (absVal > max) max = absVal
+                                    // 2. Compute amplitude for visualizer bars
+                                    var max = 0
+                                    for (i in 0 until read) {
+                                        val absVal = Math.abs(buffer[i].toInt())
+                                        if (absVal > max) max = absVal
+                                    }
+                                    val targetAmp = (max / 32768f).coerceIn(0f, 1f)
+                                    for (j in 0 until bars.size) {
+                                        bars[j] = (targetAmp * (0.3f + (0.7f * java.util.Random().nextFloat()))).coerceIn(0.1f, 1.0f)
+                                    }
                                 }
-                                val targetAmp = (max / 32768f).coerceIn(0f, 1f)
-                                for (j in 0 until bars.size) {
-                                    bars[j] = (targetAmp * (0.3f + (0.7f * java.util.Random().nextFloat()))).coerceIn(0.1f, 1.0f)
-                                }
+                            } else {
+                                delay(100) // Prevent tight CPU spin on errors/negative values
                             }
                             yield()
                         }
-
-                        try {
-                            audioRecord.stop()
-                        } catch (e: Exception) {}
-                        try {
-                            audioTrack.stop()
-                        } catch (e: Exception) {}
                     }
-                    audioRecord.release()
-                    audioTrack.release()
                 } catch (e: Exception) {
                     e.printStackTrace()
+                } finally {
+                    try {
+                        audioRecord?.stop()
+                    } catch (e: Exception) {}
+                    try {
+                        audioRecord?.release()
+                    } catch (e: Exception) {}
+                    try {
+                        audioTrack?.stop()
+                    } catch (e: Exception) {}
+                    try {
+                        audioTrack?.release()
+                    } catch (e: Exception) {}
                 }
             }
 

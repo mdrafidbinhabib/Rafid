@@ -25,7 +25,8 @@ class EchoNotificationService : Service() {
 
     private val notifiedCalls = mutableSetOf<String>()
     private val notifiedMessages = mutableSetOf<String>()
-    private var lastCheckedMessageTs = 0L
+    private var isFirstMessagePoll = true
+    private var serviceWakeLock: PowerManager.WakeLock? = null
 
     companion object {
         const val CHANNEL_SERVICE_ID = "echo_service_channel"
@@ -36,11 +37,19 @@ class EchoNotificationService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        
+        // Acquire CPU wake lock to ensure polling works even when screen is off / locked
+        try {
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            serviceWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "EchoChat:ServiceWakeLock").apply {
+                acquire()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
         createNotificationChannels()
         startServiceInForeground()
-        
-        // Initialize timestamp to current time to avoid historical spam
-        lastCheckedMessageTs = System.currentTimeMillis()
         
         // Start background polling
         startPollingLoop()
@@ -169,7 +178,8 @@ class EchoNotificationService : Service() {
                 val ts = (map["ts"] as? Number)?.toLong() ?: 0L
                 val callType = map["callType"] as? String ?: "audio"
 
-                if (sanitizeId(calleeId) == userKey && status == "calling" && (System.currentTimeMillis() - ts < 45000)) {
+                // Check calls active within 5 minutes of clock skew to be extremely robust
+                if (sanitizeId(calleeId) == userKey && status == "calling" && (Math.abs(System.currentTimeMillis() - ts) < 300000)) {
                     if (!notifiedCalls.contains(roomId)) {
                         notifiedCalls.add(roomId)
                         val isCallerHidden = hiddenChats.keys.any { it.equals(callerId, ignoreCase = true) }
@@ -189,49 +199,34 @@ class EchoNotificationService : Service() {
         }
 
         if (rawMessages != null) {
-            // Filter and sort by parsed timestamp
-            val parsedMsgs = rawMessages.mapNotNull { msg ->
-                try {
-                    val time = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).parse(msg.timestamp)?.time ?: 0L
-                    msg to time
-                } catch (e: Exception) {
-                    null
-                }
-            }.sortedBy { it.second }
-
             val hiddenChats = try {
                 LocalStorage.getHiddenChats(applicationContext)
             } catch (e: Exception) {
                 emptyMap<String, String>()
             }
 
-            for ((msg, time) in parsedMsgs) {
-                val msgId = msg.id ?: msg.timestamp
+            for (msg in rawMessages) {
+                val msgId = msg.id ?: msg.timestamp ?: continue
                 val senderEmail = msg.sender?.lowercase() ?: ""
                 val participants = msg.getParticipantsList().map { it.lowercase() }
 
-                // Check if we are a participant, the sender is not us, the timestamp is new, and we haven't notified yet
-                if (participants.contains(myEmail) && senderEmail != myEmail && time > lastCheckedMessageTs) {
+                if (participants.contains(myEmail) && senderEmail != myEmail) {
                     if (!notifiedMessages.contains(msgId)) {
                         notifiedMessages.add(msgId)
-                        val isSenderHidden = hiddenChats.keys.any { it.equals(senderEmail, ignoreCase = true) }
-                        if (isSenderHidden) {
-                            showChatNotification("নিউ এসএমএস", "নিউ এসএমএস", isHidden = true)
-                        } else {
-                            val senderName = msg.user ?: senderEmail.split("@")[0]
-                            showChatNotification(senderName, msg.message, isHidden = false)
+                        // Only show notifications for messages that arrive AFTER service is initialized and polling
+                        if (!isFirstMessagePoll) {
+                            val isSenderHidden = hiddenChats.keys.any { it.equals(senderEmail, ignoreCase = true) }
+                            if (isSenderHidden) {
+                                showChatNotification("নিউ এসএমএস", "নিউ এসএমএস", isHidden = true)
+                            } else {
+                                val senderName = msg.user ?: senderEmail.split("@")[0]
+                                showChatNotification(senderName, msg.message ?: "", isHidden = false)
+                            }
                         }
                     }
                 }
             }
-
-            // Update watermarks
-            if (parsedMsgs.isNotEmpty()) {
-                val maxTs = parsedMsgs.maxOf { it.second }
-                if (maxTs > lastCheckedMessageTs) {
-                    lastCheckedMessageTs = maxTs
-                }
-            }
+            isFirstMessagePoll = false
         }
     }
 
@@ -309,6 +304,13 @@ class EchoNotificationService : Service() {
 
     override fun onDestroy() {
         super.onDestroy()
+        try {
+            if (serviceWakeLock?.isHeld == true) {
+                serviceWakeLock?.release()
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
         serviceJob.cancel() // Cancel all polling tasks
     }
 }
