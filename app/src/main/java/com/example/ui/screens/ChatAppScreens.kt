@@ -426,6 +426,22 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
         )
     }
 
+    LaunchedEffect(allPermissionsGranted) {
+        if (allPermissionsGranted) {
+            triggerBackgroundOptimizationExemption(context)
+            try {
+                val serviceIntent = android.content.Intent(context, com.example.service.EchoNotificationService::class.java)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                    context.startForegroundService(serviceIntent)
+                } else {
+                    context.startService(serviceIntent)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
     MyCustomTheme(isDarkMode = isDarkMode) {
         if (!allPermissionsGranted) {
             PermissionBlockerScreen(onAllGranted = { allPermissionsGranted = true })
@@ -6136,7 +6152,7 @@ fun RealTimeMicrophoneVisualizer(bars: List<Float>, modifier: Modifier = Modifie
 // ─────────────────────────────────────────────
 @Composable
 fun CallManagerOverlay(viewModel: EchoChatViewModel) {
-    val context = LocalContext.current
+    val localCtx = LocalContext.current
     val callState by viewModel.callState.collectAsState()
     val callDuration by viewModel.callDuration.collectAsState()
     val isMuted by viewModel.isCallMuted.collectAsState()
@@ -6184,124 +6200,132 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
         label = "alpha2"
     )
 
-    when (callState) {
-        is CallState.Outgoing -> {
-            val state = callState as CallState.Outgoing
-            Dialog(onDismissRequest = {}) {
+    if (callState is CallState.Idle) return
+
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.6f))
+            .clickable(enabled = true, onClick = {}) // consume clicks to background
+    ) {
+        when (callState) {
+            is CallState.Outgoing -> {
+                val state = callState as CallState.Outgoing
                 Surface(
-                    modifier = Modifier.fillMaxWidth().wrapContentHeight(),
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp
+                    modifier = Modifier.fillMaxSize(),
+                    color = Color(0xFF0F172A)
                 ) {
                     Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = if (state.callType == "video") "📹 Video Call Initializing..." else "📞 Voice Call Initializing...",
-                            fontWeight = FontWeight.Medium,
-                            fontSize = 14.sp,
-                            color = MaterialTheme.colorScheme.primary
+                            text = if (state.callType == "video") "📹 ভিডিও কল শুরু হচ্ছে..." else "📞 অডিও কল শুরু হচ্ছে...",
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 16.sp,
+                            color = Color(0xFF38BDF8)
                         )
-                        Spacer(modifier = Modifier.height(24.dp))
+                        Spacer(modifier = Modifier.height(40.dp))
 
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(160.dp)) {
-                            // Pulsing Ring 1
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(180.dp)) {
                             Box(
                                 modifier = Modifier
-                                    .size(80.dp)
+                                    .size(100.dp)
                                     .graphicsLayer(
                                         scaleX = pulseScale1,
                                         scaleY = pulseScale1,
                                         alpha = pulseAlpha1
                                     )
-                                    .background(getAnimatedAccentColor().copy(alpha = 0.35f), CircleShape)
+                                    .background(Color(0xFFE040FB).copy(alpha = 0.35f), CircleShape)
                             )
-                            // Pulsing Ring 2
                             Box(
                                 modifier = Modifier
-                                    .size(80.dp)
+                                    .size(100.dp)
                                     .graphicsLayer(
                                         scaleX = pulseScale2,
                                         scaleY = pulseScale2,
                                         alpha = pulseAlpha2
                                     )
-                                    .background(getAnimatedAccentColor().copy(alpha = 0.5f), CircleShape)
+                                    .background(Color(0xFF38BDF8).copy(alpha = 0.5f), CircleShape)
                             )
-                            // Core Avatar
                             Box(
                                 modifier = Modifier
-                                    .size(80.dp)
+                                    .size(100.dp)
                                     .clip(CircleShape)
                                     .background(getAnimatedAccentColor()),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = removeLinkAndLockFromName(state.partnerName).take(2).uppercase(),
-                                    fontSize = 32.sp,
+                                    fontSize = 36.sp,
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Text(removeLinkAndLockFromName(state.partnerName), fontWeight = FontWeight.Bold, fontSize = 22.sp)
-                        Text("Calling...", color = Color.Gray, fontSize = 14.sp)
                         Spacer(modifier = Modifier.height(32.dp))
+                        Text(
+                            text = removeLinkAndLockFromName(state.partnerName),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp
+                        )
+                        Spacer(modifier = Modifier.height(8.dp))
+                        Text("ডায়াল হচ্ছে (Calling)...", color = Color.Gray, fontSize = 14.sp)
+                        Spacer(modifier = Modifier.height(80.dp))
 
                         IconButton(
                             onClick = { viewModel.cancelOutgoingCall() },
                             modifier = Modifier
-                                .size(56.dp)
+                                .size(64.dp)
                                 .clip(CircleShape)
                                 .background(Color.Red)
                         ) {
-                            Icon(Icons.Filled.CallEnd, null, tint = Color.White)
+                            Icon(Icons.Filled.CallEnd, null, tint = Color.White, modifier = Modifier.size(32.dp))
                         }
                     }
                 }
             }
-        }
 
-        is CallState.Incoming -> {
-            val state = callState as CallState.Incoming
-            Dialog(onDismissRequest = {}) {
+            is CallState.Incoming -> {
+                val state = callState as CallState.Incoming
                 Surface(
-                    modifier = Modifier.fillMaxWidth().wrapContentHeight(),
-                    shape = RoundedCornerShape(28.dp),
-                    color = MaterialTheme.colorScheme.surface,
-                    tonalElevation = 6.dp
+                    modifier = Modifier.fillMaxSize(),
+                    color = Color(0xFF0F172A)
                 ) {
                     Column(
-                        modifier = Modifier.padding(24.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(24.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
+                        verticalArrangement = Arrangement.Center
                     ) {
                         Text(
-                            text = if (state.callType == "video") "Incoming Video Call 🔔" else "Incoming Voice Call 🔔",
+                            text = if (state.callType == "video") "📹 ইনকামিং ভিডিও কল" else "📞 ইনকামিং অডিও কল",
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.primary,
-                            fontSize = 16.sp
+                            color = Color(0xFF10B981),
+                            fontSize = 18.sp
                         )
-                        Spacer(modifier = Modifier.height(24.dp))
+                        Spacer(modifier = Modifier.height(40.dp))
 
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(160.dp)) {
-                            // Pulsing Ring 1
+                        Box(contentAlignment = Alignment.Center, modifier = Modifier.size(180.dp)) {
                             Box(
                                 modifier = Modifier
-                                    .size(80.dp)
+                                    .size(100.dp)
                                     .graphicsLayer(
                                         scaleX = pulseScale1,
                                         scaleY = pulseScale1,
                                         alpha = pulseAlpha1
                                     )
-                                    .background(getAnimatedAccentColor().copy(alpha = 0.35f), CircleShape)
+                                    .background(Color(0xFF10B981).copy(alpha = 0.35f), CircleShape)
                             )
-                            // Pulsing Ring 2
                             Box(
                                 modifier = Modifier
-                                    .size(80.dp)
+                                    .size(100.dp)
                                     .graphicsLayer(
                                         scaleX = pulseScale2,
                                         scaleY = pulseScale2,
@@ -6309,254 +6333,283 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                                     )
                                     .background(getAnimatedAccentColor().copy(alpha = 0.5f), CircleShape)
                             )
-                            // Core avatar
                             Box(
                                 modifier = Modifier
-                                    .size(80.dp)
+                                    .size(100.dp)
                                     .clip(CircleShape)
                                     .background(getAnimatedAccentColor()),
                                 contentAlignment = Alignment.Center
                             ) {
                                 Text(
                                     text = removeLinkAndLockFromName(state.partnerName).take(2).uppercase(),
-                                    fontSize = 32.sp,
+                                    fontSize = 36.sp,
                                     color = Color.White,
                                     fontWeight = FontWeight.Bold
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(24.dp))
-                        Text(removeLinkAndLockFromName(state.partnerName), fontWeight = FontWeight.Bold, fontSize = 22.sp)
                         Spacer(modifier = Modifier.height(32.dp))
+                        Text(
+                            text = removeLinkAndLockFromName(state.partnerName),
+                            color = Color.White,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 24.sp
+                        )
+                        Spacer(modifier = Modifier.height(80.dp))
 
                         Row(
-                            horizontalArrangement = Arrangement.spacedBy(32.dp),
+                            horizontalArrangement = Arrangement.spacedBy(48.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
                             IconButton(
                                 onClick = { viewModel.rejectIncomingCall() },
                                 modifier = Modifier
-                                    .size(56.dp)
+                                    .size(64.dp)
                                     .clip(CircleShape)
                                     .background(Color.Red)
                             ) {
-                                Icon(Icons.Filled.CallEnd, null, tint = Color.White)
+                                Icon(Icons.Filled.CallEnd, null, tint = Color.White, modifier = Modifier.size(32.dp))
                             }
                             IconButton(
                                 onClick = { viewModel.acceptIncomingCall() },
                                 modifier = Modifier
-                                    .size(56.dp)
+                                    .size(64.dp)
                                     .clip(CircleShape)
-                                    .background(Color(0xFF25D366)) // WhatsApp active green
+                                    .background(Color(0xFF25D366))
                             ) {
-                                Icon(if (state.callType == "video") Icons.Filled.Videocam else Icons.Filled.Call, null, tint = Color.White)
+                                Icon(
+                                    imageVector = if (state.callType == "video") Icons.Filled.Videocam else Icons.Filled.Call,
+                                    contentDescription = null,
+                                    tint = Color.White,
+                                    modifier = Modifier.size(32.dp)
+                                )
                             }
                         }
                     }
                 }
             }
-        }
 
-        is CallState.Connected -> {
-            val state = callState as CallState.Connected
-            val bars = remember { mutableStateListOf(0.2f, 0.4f, 0.3f, 0.5f, 0.2f, 0.6f, 0.4f, 0.3f, 0.2f) }
+            is CallState.Connected -> {
+                val state = callState as CallState.Connected
+                val bars = remember { mutableStateListOf(0.2f, 0.4f, 0.3f, 0.5f, 0.2f, 0.6f, 0.4f, 0.3f, 0.2f) }
 
-            LaunchedEffect(isMuted) {
-                if (isMuted) {
-                    for (i in 0 until bars.size) {
-                        bars[i] = 0.1f
+                LaunchedEffect(isMuted) {
+                    if (isMuted) {
+                        for (i in 0 until bars.size) {
+                            bars[i] = 0.1f
+                        }
+                        return@LaunchedEffect
                     }
-                    return@LaunchedEffect
-                }
-                
-                if (androidx.core.content.ContextCompat.checkSelfPermission(
-                        context,
-                        android.Manifest.permission.RECORD_AUDIO
-                    ) != android.content.pm.PackageManager.PERMISSION_GRANTED
-                ) {
-                    return@LaunchedEffect
-                }
+                    
+                    if (androidx.core.content.ContextCompat.checkSelfPermission(
+                            localCtx,
+                            android.Manifest.permission.RECORD_AUDIO
+                        ) != android.content.pm.PackageManager.PERMISSION_GRANTED
+                    ) {
+                        return@LaunchedEffect
+                    }
 
-                val bufferSize = AudioRecord.getMinBufferSize(
-                    8000,
-                    AudioFormat.CHANNEL_IN_MONO,
-                    AudioFormat.ENCODING_PCM_16BIT
-                )
-                if (bufferSize <= 0) return@LaunchedEffect
-
-                var audioRecord: AudioRecord? = null
-                var audioTrack: AudioTrack? = null
-
-                try {
-                    audioRecord = AudioRecord(
-                        MediaRecorder.AudioSource.MIC,
+                    val bufferSize = AudioRecord.getMinBufferSize(
                         8000,
                         AudioFormat.CHANNEL_IN_MONO,
-                        AudioFormat.ENCODING_PCM_16BIT,
-                        bufferSize
+                        AudioFormat.ENCODING_PCM_16BIT
                     )
+                    if (bufferSize <= 0) return@LaunchedEffect
 
-                    audioTrack = AudioTrack(
-                        AudioManager.STREAM_VOICE_CALL,
-                        8000,
-                        AudioFormat.CHANNEL_OUT_MONO,
-                        AudioFormat.ENCODING_PCM_16BIT,
-                        bufferSize,
-                        AudioTrack.MODE_STREAM
-                    )
+                    var audioRecord: AudioRecord? = null
+                    var audioTrack: AudioTrack? = null
 
-                    if (audioRecord.state == AudioRecord.STATE_INITIALIZED &&
-                        audioTrack.state == AudioTrack.STATE_INITIALIZED) {
-                        
-                        audioRecord.startRecording()
-                        audioTrack.play()
-                        val buffer = ShortArray(bufferSize)
+                    try {
+                        audioRecord = AudioRecord(
+                            MediaRecorder.AudioSource.MIC,
+                            8000,
+                            AudioFormat.CHANNEL_IN_MONO,
+                            AudioFormat.ENCODING_PCM_16BIT,
+                            bufferSize
+                        )
 
-                        while (isActive) {
-                            val read = audioRecord.read(buffer, 0, buffer.size)
-                            if (read > 0) {
-                                if (!isMuted) {
-                                    // 1. Play back recorded audio on speaker
-                                    audioTrack.write(buffer, 0, read)
+                        audioTrack = AudioTrack(
+                            AudioManager.STREAM_VOICE_CALL,
+                            8000,
+                            AudioFormat.CHANNEL_OUT_MONO,
+                            AudioFormat.ENCODING_PCM_16BIT,
+                            bufferSize,
+                            AudioTrack.MODE_STREAM
+                        )
 
-                                    // 2. Compute amplitude for visualizer bars
-                                    var max = 0
-                                    for (i in 0 until read) {
-                                        val absVal = Math.abs(buffer[i].toInt())
-                                        if (absVal > max) max = absVal
+                        if (audioRecord.state == AudioRecord.STATE_INITIALIZED &&
+                            audioTrack.state == AudioTrack.STATE_INITIALIZED) {
+                            
+                            audioRecord.startRecording()
+                            audioTrack.play()
+                            val buffer = ShortArray(bufferSize)
+
+                            while (isActive) {
+                                val read = audioRecord.read(buffer, 0, buffer.size)
+                                if (read > 0) {
+                                    if (!isMuted) {
+                                        // 1. Play back recorded audio on speaker
+                                        audioTrack.write(buffer, 0, read)
+
+                                        // 2. Compute amplitude for visualizer bars
+                                        var max = 0
+                                        for (i in 0 until read) {
+                                            val absVal = Math.abs(buffer[i].toInt())
+                                            if (absVal > max) max = absVal
+                                        }
+                                        val targetAmp = (max / 32768f).coerceIn(0f, 1f)
+                                        for (j in 0 until bars.size) {
+                                            bars[j] = (targetAmp * (0.3f + (0.7f * java.util.Random().nextFloat()))).coerceIn(0.1f, 1.0f)
+                                        }
                                     }
-                                    val targetAmp = (max / 32768f).coerceIn(0f, 1f)
-                                    for (j in 0 until bars.size) {
-                                        bars[j] = (targetAmp * (0.3f + (0.7f * java.util.Random().nextFloat()))).coerceIn(0.1f, 1.0f)
-                                    }
+                                } else {
+                                    delay(100)
                                 }
-                            } else {
-                                delay(100) // Prevent tight CPU spin on errors/negative values
+                                yield()
                             }
-                            yield()
                         }
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    } finally {
+                        try {
+                            audioRecord?.stop()
+                        } catch (e: Exception) {}
+                        try {
+                            audioRecord?.release()
+                        } catch (e: Exception) {}
+                        try {
+                            audioTrack?.stop()
+                        } catch (e: Exception) {}
+                        try {
+                            audioTrack?.release()
+                        } catch (e: Exception) {}
                     }
-                } catch (e: Exception) {
-                    e.printStackTrace()
-                } finally {
-                    try {
-                        audioRecord?.stop()
-                    } catch (e: Exception) {}
-                    try {
-                        audioRecord?.release()
-                    } catch (e: Exception) {}
-                    try {
-                        audioTrack?.stop()
-                    } catch (e: Exception) {}
-                    try {
-                        audioTrack?.release()
-                    } catch (e: Exception) {}
                 }
-            }
 
-            Dialog(onDismissRequest = {}) {
                 Surface(
                     modifier = Modifier.fillMaxSize(),
-                    color = Color(0xFF0F172A) // Dark slate background
+                    color = Color(0xFF0F172A)
                 ) {
                     Box(modifier = Modifier.fillMaxSize()) {
-                        // 1. Full-screen Video feed background for Video Calls
-                        if (state.callType == "video" && !isCameraOff) {
-                            LocalCameraPreview(modifier = Modifier.fillMaxSize())
-                            // Semi-transparent overlay to ensure controls and status text are super crisp and readable
+                        // 1. Full-screen visual of peer / partner (উপার্জন / অপরজন)
+                        Box(
+                            modifier = Modifier.fillMaxSize(),
+                            contentAlignment = Alignment.Center
+                        ) {
                             Box(
                                 modifier = Modifier
-                                    .fillMaxSize()
-                                    .background(Color.Black.copy(alpha = 0.45f))
-                            )
-                        }
-
-                        // 2. Centered caller identity and status visuals
-                        Column(
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .padding(24.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                            verticalArrangement = Arrangement.Center
-                        ) {
-                            // Only show avatar bubble if not showing active full-screen camera
-                            if (state.callType != "video" || isCameraOff) {
-                                Box(contentAlignment = Alignment.Center, modifier = Modifier.size(200.dp)) {
-                                    // Subtle infinite animation for connected voice calls to make them feel alive
-                                    Box(
-                                        modifier = Modifier
-                                            .size(100.dp)
-                                            .graphicsLayer(
-                                                scaleX = pulseScale2,
-                                                scaleY = pulseScale2,
-                                                alpha = pulseAlpha2 * 0.5f
-                                            )
-                                            .background(getAnimatedAccentColor().copy(alpha = 0.4f), CircleShape)
+                                    .size(240.dp)
+                                    .graphicsLayer(
+                                        scaleX = pulseScale1,
+                                        scaleY = pulseScale1,
+                                        alpha = pulseAlpha1 * 0.4f
                                     )
+                                    .background(getAnimatedAccentColor().copy(alpha = 0.2f), CircleShape)
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(190.dp)
+                                    .graphicsLayer(
+                                        scaleX = pulseScale2,
+                                        scaleY = pulseScale2,
+                                        alpha = pulseAlpha2 * 0.6f
+                                    )
+                                    .background(Color(0xFF38BDF8).copy(alpha = 0.25f), CircleShape)
+                            )
 
-                                    Box(
-                                        modifier = Modifier
-                                            .size(100.dp)
-                                            .clip(CircleShape)
-                                            .background(getAnimatedAccentColor()),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Text(
-                                            text = removeLinkAndLockFromName(state.partnerName).take(2).uppercase(),
-                                            color = Color.White,
-                                            fontSize = 36.sp,
-                                            fontWeight = FontWeight.Bold
-                                        )
-                                    }
-                                }
-                            } else {
-                                // Video mode overlay feedback
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.Center
+                            ) {
                                 Box(
                                     modifier = Modifier
-                                        .size(100.dp)
-                                        .background(Color.Black.copy(alpha = 0.4f), CircleShape)
-                                        .border(2.dp, Color(0xFF38BDF8), CircleShape),
+                                        .size(120.dp)
+                                        .clip(CircleShape)
+                                        .background(getAnimatedAccentColor())
+                                        .border(3.dp, Color.White.copy(alpha = 0.8f), CircleShape),
                                     contentAlignment = Alignment.Center
                                 ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.Videocam,
-                                        contentDescription = "Video call active",
-                                        tint = Color(0xFF38BDF8),
-                                        modifier = Modifier.size(36.dp)
+                                    Text(
+                                        text = removeLinkAndLockFromName(state.partnerName).take(2).uppercase(),
+                                        color = Color.White,
+                                        fontSize = 44.sp,
+                                        fontWeight = FontWeight.Bold
                                     )
                                 }
-                            }
-
-                            Spacer(modifier = Modifier.height(24.dp))
-                            Text(removeLinkAndLockFromName(state.partnerName), color = Color.White, fontWeight = FontWeight.Bold, fontSize = 26.sp)
-                            Spacer(modifier = Modifier.height(12.dp))
-                            Text(
-                                text = "$minutes:$seconds",
-                                color = Color(0xFF38BDF8), // sky blue highlight
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-
-                            // Real-time audio waveform / feedback for voice calls or when muted
-                            Spacer(modifier = Modifier.height(24.dp))
-                            if (state.callType == "audio") {
-                                RealTimeMicrophoneVisualizer(bars = bars)
-                            } else {
-                                if (isCameraOff) {
-                                    Text("ক্যামেরা বন্ধ আছে (Camera is Muted)", color = Color.LightGray, fontSize = 14.sp)
+                                Spacer(modifier = Modifier.height(20.dp))
+                                Text(
+                                    text = removeLinkAndLockFromName(state.partnerName),
+                                    color = Color.White,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 26.sp
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "$minutes:$seconds",
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 18.sp,
+                                    fontWeight = FontWeight.Medium
+                                )
+                                Spacer(modifier = Modifier.height(24.dp))
+                                if (state.callType == "audio") {
+                                    RealTimeMicrophoneVisualizer(bars = bars, modifier = Modifier.padding(horizontal = 40.dp))
                                 } else {
-                                    Text("লাইভ ভিডিও ক্যামেরা চালু আছে (Live Camera is active)", color = Color(0xFF10B981), fontSize = 14.sp, fontWeight = FontWeight.Bold)
+                                    Text(
+                                        text = "ভিডিও কল চলমান (Video Call Active)",
+                                        color = Color(0xFF10B981),
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold
+                                    )
                                 }
                             }
                         }
 
-                        // Call controls bottom bar representation with modern styled translucent buttons
+                        // 2. Floating PIP Self Video Feed (ডানকোনায় উপরে নিজের ছবি দেখবে)
+                        if (state.callType == "video") {
+                            Box(
+                                modifier = Modifier
+                                    .padding(top = 48.dp, end = 20.dp)
+                                    .size(width = 110.dp, height = 150.dp)
+                                    .align(Alignment.TopEnd)
+                                    .shadow(elevation = 12.dp, shape = RoundedCornerShape(16.dp))
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(Color(0xFF1E293B))
+                                    .border(2.dp, Color.White.copy(alpha = 0.8f), RoundedCornerShape(16.dp))
+                            ) {
+                                if (!isCameraOff) {
+                                    LocalCameraPreview(modifier = Modifier.fillMaxSize())
+                                } else {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                            Icon(
+                                                imageVector = Icons.Filled.VideocamOff,
+                                                contentDescription = null,
+                                                tint = Color.White.copy(alpha = 0.6f),
+                                                modifier = Modifier.size(28.dp)
+                                            )
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "ক্যামেরা বন্ধ",
+                                                color = Color.White.copy(alpha = 0.6f),
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Bold
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 3. Floating Bottom Call Controls Bar
                         Row(
                             modifier = Modifier
                                 .align(Alignment.BottomCenter)
                                 .fillMaxWidth()
-                                .background(Color.Black.copy(alpha = 0.6f))
+                                .background(Color.Black.copy(alpha = 0.65f))
                                 .padding(vertical = 32.dp),
                             horizontalArrangement = Arrangement.SpaceEvenly,
                             verticalAlignment = Alignment.CenterVertically
@@ -6564,13 +6617,15 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                             IconButton(
                                 onClick = { viewModel.toggleCallMute() },
                                 modifier = Modifier
-                                    .size(48.dp)
+                                    .size(52.dp)
                                     .background(if (isMuted) Color.White.copy(alpha = 0.25f) else Color.Transparent, CircleShape)
+                                    .border(1.dp, Color.White.copy(alpha = 0.4f), CircleShape)
                             ) {
                                 Icon(
                                     imageVector = if (isMuted) Icons.Filled.MicOff else Icons.Filled.Mic,
                                     contentDescription = null,
-                                    tint = Color.White
+                                    tint = Color.White,
+                                    modifier = Modifier.size(24.dp)
                                 )
                             }
 
@@ -6579,29 +6634,31 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
                                 containerColor = Color.Red,
                                 contentColor = Color.White,
                                 shape = CircleShape,
-                                modifier = Modifier.size(60.dp)
+                                modifier = Modifier.size(64.dp)
                             ) {
-                                Icon(Icons.Filled.CallEnd, null, modifier = Modifier.size(28.dp))
+                                Icon(Icons.Filled.CallEnd, null, modifier = Modifier.size(30.dp))
                             }
 
-                            IconButton(
-                                onClick = { viewModel.toggleCallCamera() },
-                                modifier = Modifier
-                                    .size(48.dp)
-                                    .background(if (isCameraOff) Color.White.copy(alpha = 0.25f) else Color.Transparent, CircleShape)
-                            ) {
-                                Icon(
-                                    imageVector = if (isCameraOff) Icons.Filled.VideocamOff else Icons.Filled.Videocam,
-                                    contentDescription = null,
-                                    tint = Color.White
-                                )
+                            if (state.callType == "video") {
+                                IconButton(
+                                    onClick = { viewModel.toggleCallCamera() },
+                                    modifier = Modifier
+                                        .size(52.dp)
+                                        .background(if (isCameraOff) Color.White.copy(alpha = 0.25f) else Color.Transparent, CircleShape)
+                                        .border(1.dp, Color.White.copy(alpha = 0.4f), CircleShape)
+                                ) {
+                                    Icon(
+                                        imageVector = if (isCameraOff) Icons.Filled.VideocamOff else Icons.Filled.Videocam,
+                                        contentDescription = null,
+                                        tint = Color.White,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                }
                             }
                         }
                     }
                 }
             }
         }
-
-        else -> {}
     }
 }
