@@ -449,6 +449,19 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             try {
                 val res = RetrofitClient.echoChatApi.login(scriptUrl, email = email, oldPassword = accessKey)
                 if (res.status == "success" && res.user != null) {
+                    val userKey = sanitizeId(email)
+                    val isBlocked = try {
+                        FirebaseRestClient.service.getValue("blocked_users/$userKey") == true
+                    } catch (e: Exception) {
+                        false
+                    }
+                    if (isBlocked) {
+                        withContext(Dispatchers.Main) {
+                            _authError.value = "আপনার অ্যাকাউন্টটি ব্লক করা হয়েছে! খারাপ ভাষা ব্যবহারের জন্য আপনার অ্যাকাউন্ট বন্ধ করা হয়েছে।"
+                            _authLoading.value = false
+                        }
+                        return@launch
+                    }
                     if (res.user.name.endsWith("&")) {
                         withContext(Dispatchers.Main) {
                             _authError.value = "আইডি লগইন হচ্ছে না"
@@ -601,6 +614,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
         // Sync initial files
         loadAllConversationsAndUsers()
+        checkBlockedStatus()
+        loadBlockedUsers()
+        loadAdminPrivacy()
 
         // 1. periodic polling of messages and users
         autoRefreshJob = viewModelScope.launch(Dispatchers.IO) {
@@ -642,6 +658,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 if (now - lastSlowSync >= 5000) {
                     checkActiveSessionConflict(user)
                     pollPairRequestsAndRecoveryCode(user)
+                    checkBlockedStatus()
+                    loadBlockedUsers()
+                    loadAdminPrivacy()
                     lastSlowSync = now
                 }
                 
@@ -1136,6 +1155,17 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     )
                 }
 
+                val deletedMap = try {
+                    FirebaseRestClient.service.getValue("deleted_messages/$chatKeySanitized") as? Map<*, *>
+                } catch (e: Exception) {
+                    null
+                }
+                val deletedIds = deletedMap?.keys?.mapNotNull { it?.toString() }?.toSet() ?: emptySet()
+
+                if (deletedIds.isNotEmpty()) {
+                    supabaseMessages.removeAll { it.id in deletedIds }
+                }
+
                 if (isGroup) {
                     val groupMsgs = supabaseMessages.map { msg ->
                         val correctIsOwn = msg.senderEmail.lowercase() == current.email.lowercase() || msg.senderEmail.lowercase() == effectiveCurrentUser.email.lowercase()
@@ -1156,7 +1186,16 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     return@launch
                 }
 
-                val cachedLocal = LocalStorage.getLocalMessages(context, chatKey)
+                val cachedLocalRaw = LocalStorage.getLocalMessages(context, chatKey)
+                val cachedLocal = if (deletedIds.isNotEmpty()) {
+                    val filtered = cachedLocalRaw.filter { it.id !in deletedIds }
+                    if (filtered.size != cachedLocalRaw.size) {
+                        LocalStorage.saveLocalMessages(context, chatKey, filtered)
+                    }
+                    filtered
+                } else {
+                    cachedLocalRaw
+                }
                 val cachedIds = cachedLocal.map { it.id }.toSet()
 
                 // 2. Separate own messages and other person's messages on Supabase
@@ -1396,7 +1435,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 val sysMap = mapOf(
                     "id" to sysId,
                     "sender" to "system@echochat.com",
-                    "text" to "আপনার ভাষা ঠিক করুন নয়তো আপনার অ্যাকাউন্ট ব্লক করা হবে।",
+                    "text" to "আপনার ভাষা ঠিক করুন নয়তো আপনার অ্যাকাউন্ট বন্ধ করা হবে।",
                     "timestamp" to System.currentTimeMillis()
                 )
                 try {
@@ -1411,8 +1450,17 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     }
                     loadMessagesForConversation(chatUser.email)
                 } catch (e: Exception) {}
+                
+                val strikeCount = handleUserOffensiveStrike(current.email)
+                
                 withContext(Dispatchers.Main) {
-                    _offensiveWarningMessage.value = "এই ধরনের এসএমএস সেন্ড করা যাবে না।"
+                    if (strikeCount >= 3) {
+                        _isAccountBlocked.value = true
+                        logout()
+                        _authError.value = "আপনার অ্যাকাউন্টটি ব্লক করা হয়েছে! খারাপ ভাষা ব্যবহারের জন্য আপনার অ্যাকাউন্ট বন্ধ করা হয়েছে।"
+                    } else {
+                        _offensiveWarningMessage.value = "আপনার ভাষা ঠিক করুন নয়তো আপনার অ্যাকাউন্ট বন্ধ করা হবে।"
+                    }
                     _isSending.value = false
                 }
                 return@launch
@@ -1721,6 +1769,12 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun deleteConversation(email: String) {
+        val current = _currentUser.value
+        if (current != null) {
+            val isGroup = email.startsWith("group_")
+            val chatKey = if (isGroup) email else listOf(current.email, email).sorted().joinToString("__")
+            LocalStorage.saveLocalMessages(context, chatKey, emptyList())
+        }
         LocalStorage.deleteConversation(context, email)
         LocalStorage.saveSecuredChatPassword(context, email, null)
         _securedChats.value = LocalStorage.getSecuredChats(context)
@@ -1736,7 +1790,10 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         val isGroup = chatUser.email.startsWith("group_")
 
         viewModelScope.launch(Dispatchers.IO) {
+            val chatKey = if (isGroup) chatUser.email else listOf(current.email, chatUser.email).sorted().joinToString("__")
+            val chatKeySanitized = sanitizeId(chatKey)
             try {
+                FirebaseRestClient.service.setValue("deleted_messages/$chatKeySanitized/$msgId", true)
                 if (isGroup) {
                     SupabaseRestClient.service.deleteValue("messages/${chatUser.email}/$msgId")
                 } else {
@@ -2179,31 +2236,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     // ── Calling & Signaling Engine simulation ─────────────────────
     fun initiateCall(type: String) {
-        val current = _currentUser.value ?: return
-        val chatUser = _currentChatUser.value ?: return
-
-        _isCallMuted.value = false
-        _isCallCameraOff.value = false
-        _callDuration.value = 0
-
-        val roomId = sanitizeId(current.email) + "__call__" + sanitizeId(chatUser.email)
-        _callState.value = CallState.Outgoing(roomId, chatUser.name, type)
-
-        // Sync Signaling state to Firebase
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val signalMap = mapOf(
-                    "callerId" to current.email,
-                    "callerName" to current.name,
-                    "calleeId" to chatUser.email,
-                    "callType" to type,
-                    "status" to "calling",
-                    "ts" to System.currentTimeMillis()
-                )
-                FirebaseRestClient.service.setValue("calls/$roomId", signalMap)
-            } catch (e: Exception) {}
+        viewModelScope.launch(Dispatchers.Main) {
+            android.widget.Toast.makeText(context, "এই অপশনটি আপডেটের পরে আসবে", android.widget.Toast.LENGTH_LONG).show()
         }
-        playTone(false)
     }
 
     fun acceptIncomingCall() {
@@ -2765,14 +2800,34 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     // Content Moderation check
     suspend fun checkIsOffensiveContent(text: String): Boolean {
-        val lower = text.lowercase()
+        val lower = text.lowercase().trim()
         val adultKeywords = listOf(
             "porn", "sexy", "adult", "sex", "xvideo", "pornstar", "call girl", "escort", 
             "adult contact", "নগ্ন", "যৌন", "সেক্স", "চটি", "পর্ন", "খারাপ কথা", "এডাল্ট",
             "যৌন মিলন", "যৌন সম্পর্ক", "গার্লফ্রেন্ড চাই", "ভিডিও কল সেক্স", "হট ভিডিও", "hot video",
-            "ধর্ষণ", "বেশ্যা", "মাগী", "খানকি"
+            "ধর্ষণ", "বেশ্যা", "মাগী", "খানকি", "bainchud", "motherchud", "baal", "buda", "magi",
+            "shala", "gandu", "gand", "bastard", "bhodrolaiz", "khanki", "chodna", "chud"
         )
-        return adultKeywords.any { lower.contains(it) }
+        
+        // 1. Check local keywords first (fast/instant check)
+        if (adultKeywords.any { lower.contains(it) }) {
+            return true
+        }
+
+        // 2. AI checking using Gemini
+        try {
+            val systemInstruction = "You are a content moderation assistant. Analyze the given message for any offensive language, insults, slangs, bad words, abuse, or adult content (sexual/explicit) in Bengali, English, Benglish, or Hinglish. " +
+                    "Specifically detect Bengali slangs and abuses, including bad words like Bainchud, Motherchud, and their variations. " +
+                    "Output exactly 'OFFENSIVE' if the message contains any offensive, bad, slang, or adult language. Otherwise, output 'CLEAN'. Do not include any other text."
+            
+            val aiResponse = callGeminiAPI(text, systemInstruction).trim().uppercase()
+            if (aiResponse.contains("OFFENSIVE")) {
+                return true
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return false
     }
 
     // Report User implementation
@@ -3019,6 +3074,164 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     fun reloadSecuredAndHiddenChats() {
         _securedChats.value = LocalStorage.getSecuredChats(context)
         _hiddenChats.value = LocalStorage.getHiddenChats(context)
+    }
+
+    // New variables and methods for account blocking and privacy
+    private val _isAccountBlocked = MutableStateFlow(false)
+    val isAccountBlocked: StateFlow<Boolean> = _isAccountBlocked.asStateFlow()
+
+    private val _blockedUsersMap = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val blockedUsersMap: StateFlow<Map<String, Boolean>> = _blockedUsersMap.asStateFlow()
+
+    private val _adminPrivacyEnabled = MutableStateFlow(false)
+    val adminPrivacyEnabled: StateFlow<Boolean> = _adminPrivacyEnabled.asStateFlow()
+
+    private val _adminPrivacyMode = MutableStateFlow("No") // "Yes", "No", "Customize"
+    val adminPrivacyMode: StateFlow<String> = _adminPrivacyMode.asStateFlow()
+
+    private val _adminAllowedUsers = MutableStateFlow<Map<String, Boolean>>(emptyMap())
+    val adminAllowedUsers: StateFlow<Map<String, Boolean>> = _adminAllowedUsers.asStateFlow()
+
+    fun checkBlockedStatus() {
+        val current = _currentUser.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            val userKey = sanitizeId(current.email)
+            try {
+                val isBlocked = FirebaseRestClient.service.getValue("blocked_users/$userKey") == true
+                withContext(Dispatchers.Main) {
+                    _isAccountBlocked.value = isBlocked
+                    if (isBlocked) {
+                        logout()
+                        _authError.value = "আপনার অ্যাকাউন্টটি ব্লক করা হয়েছে! খারাপ ভাষা ব্যবহারের জন্য আপনার অ্যাকাউন্ট বন্ধ করা হয়েছে।"
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun loadBlockedUsers() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val res = FirebaseRestClient.service.getValue("blocked_users") as? Map<*, *>
+                val map = mutableMapOf<String, Boolean>()
+                res?.forEach { (k, v) ->
+                    val kStr = k?.toString() ?: return@forEach
+                    val vBool = v as? Boolean ?: false
+                    map[kStr] = vBool
+                }
+                withContext(Dispatchers.Main) {
+                    _blockedUsersMap.value = map
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun unblockUser(email: String) {
+        val userKey = sanitizeId(email)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                FirebaseRestClient.service.setValue("blocked_users/$userKey", false)
+                FirebaseRestClient.service.setValue("offensive_count/$userKey", 0)
+                loadBlockedUsers()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun loadAdminPrivacy() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val enabledRaw = FirebaseRestClient.service.getValue("admin_privacy/enabled")
+                val enabled = (enabledRaw as? Boolean) ?: false
+
+                val modeRaw = FirebaseRestClient.service.getValue("admin_privacy/mode")
+                val mode = (modeRaw as? String) ?: "No"
+                
+                val allowedRaw = FirebaseRestClient.service.getValue("admin_privacy/allowed_users") as? Map<*, *>
+                val allowedMap = mutableMapOf<String, Boolean>()
+                allowedRaw?.forEach { (k, v) ->
+                    val kStr = k?.toString() ?: return@forEach
+                    val vBool = v as? Boolean ?: false
+                    allowedMap[kStr] = vBool
+                }
+                withContext(Dispatchers.Main) {
+                    _adminPrivacyEnabled.value = enabled
+                    _adminPrivacyMode.value = mode
+                    _adminAllowedUsers.value = allowedMap
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun setAdminPrivacyEnabled(enabled: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                FirebaseRestClient.service.setValue("admin_privacy/enabled", enabled)
+                withContext(Dispatchers.Main) {
+                    _adminPrivacyEnabled.value = enabled
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun setAdminPrivacyMode(mode: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                FirebaseRestClient.service.setValue("admin_privacy/mode", mode)
+                withContext(Dispatchers.Main) {
+                    _adminPrivacyMode.value = mode
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun toggleAdminAllowedUser(email: String) {
+        val userKey = sanitizeId(email)
+        val currentVal = _adminAllowedUsers.value[userKey] == true
+        val newVal = !currentVal
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                FirebaseRestClient.service.setValue("admin_privacy/allowed_users/$userKey", newVal)
+                withContext(Dispatchers.Main) {
+                    val updated = _adminAllowedUsers.value.toMutableMap()
+                    if (newVal) updated[userKey] = true else updated.remove(userKey)
+                    _adminAllowedUsers.value = updated
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    suspend fun handleUserOffensiveStrike(email: String): Int {
+        val userKey = sanitizeId(email)
+        val currentCount = try {
+            val raw = FirebaseRestClient.service.getValue("offensive_count/$userKey")
+            (raw as? Number)?.toInt() ?: 0
+        } catch (e: Exception) {
+            0
+        }
+        val newCount = currentCount + 1
+        try {
+            FirebaseRestClient.service.setValue("offensive_count/$userKey", newCount)
+            if (newCount >= 3) {
+                FirebaseRestClient.service.setValue("blocked_users/$userKey", true)
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        return newCount
     }
 
     fun isRafidUser(user: User?): Boolean {

@@ -151,8 +151,6 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
     val context = LocalContext.current
     val permissions = remember {
         arrayOf(
-            android.Manifest.permission.CAMERA,
-            android.Manifest.permission.RECORD_AUDIO,
             android.Manifest.permission.ACCESS_FINE_LOCATION,
             android.Manifest.permission.ACCESS_COARSE_LOCATION
         )
@@ -169,16 +167,14 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
     val launcher = rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
-        val cameraOk = results[android.Manifest.permission.CAMERA] == true
-        val audioOk = results[android.Manifest.permission.RECORD_AUDIO] == true
         val fineLocationOk = results[android.Manifest.permission.ACCESS_FINE_LOCATION] == true
         val coarseLocationOk = results[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
 
-        if (cameraOk && audioOk && (fineLocationOk || coarseLocationOk)) {
+        if (fineLocationOk || coarseLocationOk) {
             permissionsGrantedState = true
             onAllGranted()
         } else {
-            Toast.makeText(context, "অ্যাপটি ব্যবহারের জন্য সবগুলি পারমিশন আবশ্যক!", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "অ্যাপটি ব্যবহারের জন্য লোকেশন পারমিশন আবশ্যক!", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -256,7 +252,7 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
                     )
 
                     Text(
-                        text = "অ্যাপটি ব্যবহার করতে নিচের পারমিশনগুলি দেওয়া আবশ্যক। পারমিশন না দিলে অ্যাপে প্রবেশ করা যাবে না।",
+                        text = "অ্যাপটি ব্যবহার করতে নিচের পারমিশনটি দেওয়া আবশ্যক। পারমিশন না দিলে অ্যাপে প্রবেশ করা যাবে না।",
                         fontSize = 13.sp,
                         color = Color.White.copy(alpha = 0.7f),
                         textAlign = TextAlign.Center,
@@ -266,18 +262,6 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
                     Divider(color = Color.White.copy(alpha = 0.1f))
 
                     // List of required permissions with nice UI
-                    PermissionItemRow(
-                        icon = Icons.Default.CameraAlt,
-                        title = "ক্যামেরা পারমিশন (Camera)",
-                        desc = "অডিও/ভিডিও কলে আপনার ছবি দেখানোর জন্য ক্যামেরা প্রয়োজন।"
-                    )
-
-                    PermissionItemRow(
-                        icon = Icons.Default.Mic,
-                        title = "মাইক্রোফোন পারমিশন (Microphone)",
-                        desc = "অডিও/ভিডিও কলে কথা বলার জন্য মাইক্রোফোন প্রয়োজন।"
-                    )
-
                     PermissionItemRow(
                         icon = Icons.Default.LocationOn,
                         title = "লোকেশন পারমিশন (Location)",
@@ -301,7 +285,7 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
                         )
                     ) {
                         Text(
-                            text = "✅ সকল পারমিশন দিন",
+                            text = "✅ লোকেশন পারমিশন দিন",
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold
                         )
@@ -365,8 +349,6 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
     val context = LocalContext.current
     val requiredPermissions = remember {
         arrayOf(
-            android.Manifest.permission.CAMERA,
-            android.Manifest.permission.RECORD_AUDIO,
             android.Manifest.permission.ACCESS_FINE_LOCATION,
             android.Manifest.permission.ACCESS_COARSE_LOCATION
         )
@@ -1651,49 +1633,301 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         }
                     } else if (dashboardTab == "admin") {
                         val currentTarget = spySelectedUser
+                        var adminSubTab by remember { mutableStateOf("spy") }
+                        
                         if (currentTarget == null) {
                             Column(modifier = Modifier.fillMaxSize()) {
-                                // Search Field
-                                OutlinedTextField(
-                                    value = usersTabSearchQuery,
-                                    onValueChange = { usersTabSearchQuery = it },
+                                // Sub-tab buttons
+                                Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .padding(horizontal = 16.dp, vertical = 8.dp),
-                                    placeholder = { Text("ব্যবহারকারী খুঁজুন...", color = Color.Gray) },
-                                    leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.primary) },
-                                    singleLine = true,
-                                    shape = RoundedCornerShape(12.dp),
-                                    colors = OutlinedTextFieldDefaults.colors(
-                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
-                                    )
-                                )
-
-                                val filteredUsers = allActiveUsers.filter { u ->
-                                    u.name.lowercase().contains(usersTabSearchQuery.lowercase()) ||
-                                    u.email.lowercase().contains(usersTabSearchQuery.lowercase())
+                                        .padding(8.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Button(
+                                        onClick = { adminSubTab = "spy" },
+                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (adminSubTab == "spy") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                            contentColor = if (adminSubTab == "spy") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(0.dp)
+                                    ) {
+                                        Text("🔍 Spying (স্পাই)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    
+                                    Button(
+                                        onClick = { adminSubTab = "unblock" },
+                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (adminSubTab == "unblock") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                            contentColor = if (adminSubTab == "unblock") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(0.dp)
+                                    ) {
+                                        Text("🤝 Unblock (আনব্লক)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                    
+                                    Button(
+                                        onClick = { adminSubTab = "privacy" },
+                                        modifier = Modifier.weight(1f),
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (adminSubTab == "privacy") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                            contentColor = if (adminSubTab == "privacy") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(0.dp)
+                                    ) {
+                                        Text("🔒 Privacy (প্রাইভেসি)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
 
-                                if (filteredUsers.isEmpty()) {
-                                    Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                        Text("কোনো ব্যবহারকারী পাওয়া যায়নি!", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                                if (adminSubTab == "spy") {
+                                    // Search Field
+                                    OutlinedTextField(
+                                        value = usersTabSearchQuery,
+                                        onValueChange = { usersTabSearchQuery = it },
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(horizontal = 16.dp, vertical = 8.dp),
+                                        placeholder = { Text("ব্যবহারকারী খুঁজুন...", color = Color.Gray) },
+                                        leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.primary) },
+                                        singleLine = true,
+                                        shape = RoundedCornerShape(12.dp),
+                                        colors = OutlinedTextFieldDefaults.colors(
+                                            focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                            unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                        )
+                                    )
+
+                                    val filteredUsers = allActiveUsers.filter { u ->
+                                        u.name.lowercase().contains(usersTabSearchQuery.lowercase()) ||
+                                        u.email.lowercase().contains(usersTabSearchQuery.lowercase())
                                     }
-                                } else {
-                                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                                        items(filteredUsers) { u ->
-                                            UserItemRow(
-                                                user = u,
-                                                unreadCount = 0,
-                                                isSecured = false,
-                                                verifiedColor = premiumVerifiedColors[u.email],
-                                                isNewUser = true,
-                                                isLastMessageOwn = false,
-                                                status = usersOnlineStatuses[viewModel.sanitizeId(u.email)] ?: "offline",
-                                                onSelect = {
-                                                    spySelectedUser = u
-                                                }
+
+                                    if (filteredUsers.isEmpty()) {
+                                        Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                            Text("কোনো ব্যবহারকারী পাওয়া যায়নি!", color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f))
+                                        }
+                                    } else {
+                                        LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                            items(filteredUsers) { u ->
+                                                UserItemRow(
+                                                    user = u,
+                                                    unreadCount = 0,
+                                                    isSecured = false,
+                                                    verifiedColor = premiumVerifiedColors[u.email],
+                                                    isNewUser = true,
+                                                    isLastMessageOwn = false,
+                                                    status = usersOnlineStatuses[viewModel.sanitizeId(u.email)] ?: "offline",
+                                                    onSelect = {
+                                                        spySelectedUser = u
+                                                    }
+                                                )
+                                            }
+                                        }
+                                    }
+                                } else if (adminSubTab == "unblock") {
+                                    val blockedMap by viewModel.blockedUsersMap.collectAsState()
+                                    val blockedList = blockedMap.filter { it.value }.keys.toList()
+                                    var adminUnblockSearchQuery by remember { mutableStateOf("") }
+                                    
+                                    Column(modifier = Modifier.fillMaxSize()) {
+                                        OutlinedTextField(
+                                            value = adminUnblockSearchQuery,
+                                            onValueChange = { adminUnblockSearchQuery = it },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                            placeholder = { Text("ব্লক করা অ্যাকাউন্ট খুঁজুন...", color = Color.Gray) },
+                                            leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.primary) },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
                                             )
+                                        )
+                                        
+                                        val filteredBlockedList = blockedList.filter { blockedKey ->
+                                            val matchedUser = allActiveUsers.find { viewModel.sanitizeId(it.email) == blockedKey }
+                                            val name = matchedUser?.name ?: blockedKey
+                                            val email = matchedUser?.email ?: (blockedKey.replace("_", ".") + "@gmail.com")
+                                            name.lowercase().contains(adminUnblockSearchQuery.lowercase()) ||
+                                            email.lowercase().contains(adminUnblockSearchQuery.lowercase())
+                                        }
+
+                                        if (filteredBlockedList.isEmpty()) {
+                                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                Text(
+                                                    if (adminUnblockSearchQuery.isEmpty()) "কোনো ব্লক করা অ্যাকাউন্ট নেই" else "কোনো ব্লক করা অ্যাকাউন্ট পাওয়া যায়নি!",
+                                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                                )
+                                            }
+                                        } else {
+                                            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                                items(filteredBlockedList) { blockedKey ->
+                                                    val matchedUser = allActiveUsers.find { viewModel.sanitizeId(it.email) == blockedKey }
+                                                    val name = matchedUser?.name ?: blockedKey
+                                                    val email = matchedUser?.email ?: (blockedKey.replace("_", ".") + "@gmail.com")
+                                                    
+                                                    Card(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                                                        colors = CardDefaults.cardColors(
+                                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                                        )
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(16.dp),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Column(modifier = Modifier.weight(1f)) {
+                                                                Text(name, fontWeight = FontWeight.Bold, color = Color.White)
+                                                                Text(email, fontSize = 12.sp, color = Color.LightGray)
+                                                            }
+                                                            Button(
+                                                                onClick = { viewModel.unblockUser(email) },
+                                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF10B981))
+                                                            ) {
+                                                                Text("আনব্লক", fontWeight = FontWeight.Bold, color = Color.White)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else if (adminSubTab == "privacy") {
+                                    val adminPrivacyMode by viewModel.adminPrivacyMode.collectAsState()
+                                    val adminAllowedUsers by viewModel.adminAllowedUsers.collectAsState()
+                                    
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(16.dp)
+                                            .verticalScroll(rememberScrollState()),
+                                        verticalArrangement = Arrangement.spacedBy(16.dp)
+                                    ) {
+                                        Text(
+                                            text = "প্রাইভেসি সেটিং (Privacy Setting)",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        
+                                        listOf(
+                                            "No" to ("সবাই আপনাকে মেসেজ দিতে পারবে (Anyone)" to "সবাই আপনাকে চ্যাট উইন্ডোতে সরাসরি মেসেজ দিতে পারবে।"),
+                                            "Yes" to ("কেউ মেসেজ দিতে পারবে না (Nobody)" to "কেউ চ্যাট উইন্ডোতে আপনাকে মেসেজ দিতে পারবে না।"),
+                                            "Customize" to ("কাস্টমাইজ পারমিশন (Customize whitelist)" to "শুধুমাত্র যাদের আপনি পারমিশন বা অ্যালাও করবেন তারাই আপনাকে মেসেজ দিতে পারবে।")
+                                        ).forEach { (mode, details) ->
+                                            val isSelected = adminPrivacyMode == mode
+                                            Card(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .clickable { viewModel.setAdminPrivacyMode(mode) },
+                                                colors = CardDefaults.cardColors(
+                                                    containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                                                ),
+                                                border = if (isSelected) BorderStroke(1.5.dp, MaterialTheme.colorScheme.primary) else null
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(16.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    RadioButton(
+                                                        selected = isSelected,
+                                                        onClick = { viewModel.setAdminPrivacyMode(mode) }
+                                                    )
+                                                    Spacer(modifier = Modifier.width(12.dp))
+                                                    Column {
+                                                        Text(details.first, fontWeight = FontWeight.Bold, color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else Color.White)
+                                                        Text(details.second, fontSize = 12.sp, color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f) else Color.LightGray)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                        
+                                        if (adminPrivacyMode == "Customize") {
+                                            Spacer(modifier = Modifier.height(8.dp))
+                                            Text(
+                                                text = "মেসেজ অ্যালাও লিস্ট (Allowed Users for Chat):",
+                                                style = MaterialTheme.typography.bodyMedium,
+                                                fontWeight = FontWeight.Bold,
+                                                color = MaterialTheme.colorScheme.secondary
+                                            )
+                                            
+                                            var adminPrivacySearchQuery by remember { mutableStateOf("") }
+                                            
+                                            OutlinedTextField(
+                                                value = adminPrivacySearchQuery,
+                                                onValueChange = { adminPrivacySearchQuery = it },
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 8.dp),
+                                                placeholder = { Text("ব্যবহারকারী খুঁজুন...", color = Color.Gray) },
+                                                leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.primary) },
+                                                singleLine = true,
+                                                shape = RoundedCornerShape(12.dp),
+                                                colors = OutlinedTextFieldDefaults.colors(
+                                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                                )
+                                            )
+                                            
+                                            val whitelistedUsers = allActiveUsers.filter { !viewModel.isRafidUser(it) }
+                                            val filteredWhitelist = whitelistedUsers.filter { u ->
+                                                u.name.lowercase().contains(adminPrivacySearchQuery.lowercase()) ||
+                                                u.email.lowercase().contains(adminPrivacySearchQuery.lowercase())
+                                            }
+
+                                            if (filteredWhitelist.isEmpty()) {
+                                                Text(
+                                                    "কোনো ব্যবহারকারী পাওয়া যায়নি!",
+                                                    color = Color.Gray,
+                                                    fontSize = 12.sp,
+                                                    modifier = Modifier.padding(8.dp)
+                                                )
+                                            } else {
+                                                filteredWhitelist.forEach { u ->
+                                                    val sanitizedEmail = viewModel.sanitizeId(u.email)
+                                                    val isAllowed = adminAllowedUsers[sanitizedEmail] == true
+                                                    
+                                                    Card(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(vertical = 4.dp),
+                                                        colors = CardDefaults.cardColors(
+                                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                                        )
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(12.dp),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Column {
+                                                                Text(u.name, fontWeight = FontWeight.Bold, color = Color.White)
+                                                                Text(u.email, fontSize = 11.sp, color = Color.LightGray)
+                                                            }
+                                                            Switch(
+                                                                checked = isAllowed,
+                                                                onCheckedChange = { viewModel.toggleAdminAllowedUser(u.email) }
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -2989,6 +3223,8 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
     val currentUser by viewModel.currentUser.collectAsState()
     val spyingOnUser by viewModel.spyingOnUser.collectAsState()
     val agreedUsers by viewModel.agreedUsers.collectAsState()
+    val adminPrivacyMode by viewModel.adminPrivacyMode.collectAsState()
+    val adminAllowedUsers by viewModel.adminAllowedUsers.collectAsState()
 
     val chatWallpaper by viewModel.chatWallpaper.collectAsState()
     val perChatWallpapers by viewModel.perChatWallpaper.collectAsState()
@@ -3635,7 +3871,23 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
             }
             val canSms = !isRecipientSpecial || isSenderRafid || isSenderSelf || isSenderAgreed
 
-            if (canSms) {
+            val isRecipientAdmin = !isGroup && viewModel.isRafidUser(localChatUser)
+            val isSenderAdmin = viewModel.isRafidUser(localCurrentUser)
+
+            val isAllowedByAdminPrivacy = if (isRecipientAdmin && !isSenderAdmin) {
+                when (adminPrivacyMode) {
+                    "Yes" -> false
+                    "Customize" -> {
+                        val senderKey = if (localCurrentUser != null) viewModel.sanitizeId(localCurrentUser.email) else ""
+                        adminAllowedUsers[senderKey] == true
+                    }
+                    else -> true // "No"
+                }
+            } else {
+                true
+            }
+
+            if (canSms && isAllowedByAdminPrivacy) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -3706,7 +3958,7 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = "ইউ ক্যান নট এসএমএস দিস account",
+                        text = if (!isAllowedByAdminPrivacy) "this account is not available" else "ইউ ক্যান নট এসএমএস দিস account",
                         color = Color.White,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
@@ -3857,6 +4109,12 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
                                 showPlusOptionsDialog = false
                                 try {
                                     val locationManager = context.getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
+                                    val isGpsEnabled = locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)
+                                    val isNetworkEnabled = locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)
+                                    if (!isGpsEnabled && !isNetworkEnabled) {
+                                        Toast.makeText(context, "আগে লোকেশন অন করুন", Toast.LENGTH_LONG).show()
+                                        return@clickable
+                                    }
                                     if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
                                         var loc: android.location.Location? = null
                                         if (locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) {
@@ -5782,9 +6040,77 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
 
                                 Text("অন্য কোনো ব্যবহারকারীকে পেয়ার করার জন্য অনুরোধ পাঠানঃ", fontSize = 13.sp, fontWeight = FontWeight.Medium)
                                 Spacer(modifier = Modifier.height(8.dp))
+                                
+                                var pairSearchQuery by remember { mutableStateOf("") }
                                 var reqMail by remember { mutableStateOf("") }
                                 var pairRequestedEmailNotFound by remember { mutableStateOf<String?>(null) }
                                 var pairRequestErrorMsg by remember { mutableStateOf<String?>(null) }
+
+                                OutlinedTextField(
+                                    value = pairSearchQuery,
+                                    onValueChange = { pairSearchQuery = it },
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(bottom = 8.dp),
+                                    placeholder = { Text("পেয়ারিংয়ের জন্য ইউজার সার্চ করুন...", color = Color.Gray) },
+                                    leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.primary) },
+                                    singleLine = true,
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                    )
+                                )
+
+                                val pairingCandidates = allActiveUsers.filter { u ->
+                                    u.email != user?.email && !u.email.startsWith("group_") && !viewModel.isAiUser(u)
+                                }
+                                val filteredPairCandidates = if (pairSearchQuery.isNotEmpty()) {
+                                    pairingCandidates.filter { u ->
+                                        u.name.lowercase().contains(pairSearchQuery.lowercase()) ||
+                                        u.email.lowercase().contains(pairSearchQuery.lowercase())
+                                    }
+                                } else {
+                                    emptyList()
+                                }
+
+                                if (filteredPairCandidates.isNotEmpty()) {
+                                    Text("খোঁজা হয়েছে (সার্চ রেজাল্ট):", fontSize = 11.sp, color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+                                    LazyColumn(modifier = Modifier.heightIn(max = 150.dp)) {
+                                        items(filteredPairCandidates) { u ->
+                                            Card(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .padding(vertical = 4.dp)
+                                                    .clickable {
+                                                        reqMail = u.email
+                                                        pairSearchQuery = "" // Reset query after selection
+                                                    },
+                                                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                            ) {
+                                                Row(
+                                                    modifier = Modifier.padding(10.dp),
+                                                    verticalAlignment = Alignment.CenterVertically
+                                                ) {
+                                                    Box(
+                                                        modifier = Modifier
+                                                            .size(24.dp)
+                                                            .background(MaterialTheme.colorScheme.primary, shape = CircleShape),
+                                                        contentAlignment = Alignment.Center
+                                                    ) {
+                                                        Text(u.name.take(1).uppercase(), color = Color.White, fontSize = 11.sp)
+                                                    }
+                                                    Spacer(modifier = Modifier.width(8.dp))
+                                                    Column {
+                                                        Text(u.name, fontWeight = FontWeight.Bold, fontSize = 12.sp, color = Color.White)
+                                                        Text(u.email, fontSize = 10.sp, color = Color.LightGray)
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    Spacer(modifier = Modifier.height(8.dp))
+                                }
 
                                 Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                     OutlinedTextField(

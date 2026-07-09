@@ -16,6 +16,7 @@ import kotlinx.coroutines.*
 import java.text.SimpleDateFormat
 import java.util.*
 
+@android.annotation.SuppressLint("MissingPermission", "NotificationPermission")
 class EchoNotificationService : Service() {
 
     private val serviceJob = SupervisorJob()
