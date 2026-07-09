@@ -1412,7 +1412,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     loadMessagesForConversation(chatUser.email)
                 } catch (e: Exception) {}
                 withContext(Dispatchers.Main) {
-                    _offensiveWarningMessage.value = "⚠️ সতর্কতা: আপনার পাঠানো এসএমএস-এ গালিগালাজ বা এডাল্ট শব্দ শনাক্ত করা হয়েছে। এই ধরণের কন্টেন্ট পাঠানো সম্পূর্ণ নিষিদ্ধ।"
+                    _offensiveWarningMessage.value = "এই ধরনের এসএমএস সেন্ড করা যাবে না।"
                     _isSending.value = false
                 }
                 return@launch
@@ -1624,8 +1624,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     val valMap = value as? Map<*, *> ?: return@forEach
                     val status = (valMap["status"] as? String) ?: "offline"
                     val ts = (valMap["ts"] as? Number)?.toLong() ?: 0L
-                    val diff = Math.abs(now - ts)
-                    if (diff <= 60000) {
+                    if (now - ts <= 15000) {
                         statuses[userK] = status
                     } else {
                         statuses[userK] = "offline"
@@ -2766,8 +2765,14 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     // Content Moderation check
     suspend fun checkIsOffensiveContent(text: String): Boolean {
-        // Disabled to allow all users (non-admins) to send messages without being incorrectly blocked
-        return false
+        val lower = text.lowercase()
+        val adultKeywords = listOf(
+            "porn", "sexy", "adult", "sex", "xvideo", "pornstar", "call girl", "escort", 
+            "adult contact", "নগ্ন", "যৌন", "সেক্স", "চটি", "পর্ন", "খারাপ কথা", "এডাল্ট",
+            "যৌন মিলন", "যৌন সম্পর্ক", "গার্লফ্রেন্ড চাই", "ভিডিও কল সেক্স", "হট ভিডিও", "hot video",
+            "ধর্ষণ", "বেশ্যা", "মাগী", "খানকি"
+        )
+        return adultKeywords.any { lower.contains(it) }
     }
 
     // Report User implementation
@@ -3005,7 +3010,10 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     val forceAdmin = MutableStateFlow(false)
 
     fun toggleForceAdmin() {
-        forceAdmin.value = !forceAdmin.value
+        val user = _currentUser.value
+        if (isRafidUser(user)) {
+            forceAdmin.value = !forceAdmin.value
+        }
     }
 
     fun reloadSecuredAndHiddenChats() {
@@ -3014,17 +3022,14 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun isRafidUser(user: User?): Boolean {
-        if (forceAdmin.value) return true
         if (user == null) return false
         val cleanName = user.name.lowercase().trim()
         val email = user.email.lowercase().trim()
         return email == "md.r.rafid1234@gmail.com" || 
+               email == "rafid@echochat.com" ||
                email.contains("rafid") || 
                cleanName == "rafid" || 
-               cleanName.contains("rafid") ||
-               email.contains("support") ||
-               email.contains("admin") ||
-               email.contains("test")
+               cleanName.contains("rafid")
     }
 
     fun sanitizeId(email: String): String {

@@ -150,16 +150,12 @@ fun SafeAvatarImage(
 fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
     val context = LocalContext.current
     val permissions = remember {
-        val list = mutableListOf(
+        arrayOf(
             android.Manifest.permission.CAMERA,
             android.Manifest.permission.RECORD_AUDIO,
             android.Manifest.permission.ACCESS_FINE_LOCATION,
             android.Manifest.permission.ACCESS_COARSE_LOCATION
         )
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            list.add(android.Manifest.permission.POST_NOTIFICATIONS)
-        }
-        list.toTypedArray()
     }
 
     var permissionsGrantedState by remember {
@@ -177,15 +173,9 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
         val audioOk = results[android.Manifest.permission.RECORD_AUDIO] == true
         val fineLocationOk = results[android.Manifest.permission.ACCESS_FINE_LOCATION] == true
         val coarseLocationOk = results[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
-        val notificationOk = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            results[android.Manifest.permission.POST_NOTIFICATIONS] == true
-        } else {
-            true
-        }
 
-        if (cameraOk && audioOk && (fineLocationOk || coarseLocationOk) && notificationOk) {
+        if (cameraOk && audioOk && (fineLocationOk || coarseLocationOk)) {
             permissionsGrantedState = true
-            triggerBackgroundOptimizationExemption(context)
             onAllGranted()
         } else {
             Toast.makeText(context, "অ্যাপটি ব্যবহারের জন্য সবগুলি পারমিশন আবশ্যক!", Toast.LENGTH_LONG).show()
@@ -194,7 +184,6 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
 
     LaunchedEffect(permissionsGrantedState) {
         if (permissionsGrantedState) {
-            triggerBackgroundOptimizationExemption(context)
             try {
                 val serviceIntent = android.content.Intent(context, com.example.service.EchoNotificationService::class.java)
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -295,18 +284,6 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
                         desc = "আপনার অবস্থান নির্ভুলভাবে যাচাই ও শেয়ার করতে লোকেশন প্রয়োজন।"
                     )
 
-                    PermissionItemRow(
-                        icon = Icons.Default.Notifications,
-                        title = "নোটিফিকেশন পারমিশন (Notifications)",
-                        desc = "নিখুঁতভাবে রিয়েল-টাইম বার্তা ও কল নোটিফিকেশন পাওয়ার জন্য নোটিফিকেশন পারমিশন আবশ্যক।"
-                    )
-
-                    PermissionItemRow(
-                        icon = Icons.Default.BatteryChargingFull,
-                        title = "ব্যাকগ্রাউন্ড অপ্টিমাইজেশন (Background)",
-                        desc = "ব্যাকগ্রাউন্ডে সচল থাকতে এবং নিরবচ্ছিন্ন কল পেতে ব্যাকগ্রাউন্ড অপ্টিমাইজেশন নিষ্ক্রিয় করা প্রয়োজন।"
-                    )
-
                     Spacer(modifier = Modifier.height(4.dp))
 
                     Button(
@@ -336,28 +313,7 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
 }
 
 fun triggerBackgroundOptimizationExemption(context: android.content.Context) {
-    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
-        val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
-        if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
-            val intent = android.content.Intent().apply {
-                action = android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
-                data = android.net.Uri.parse("package:${context.packageName}")
-                flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-            }
-            try {
-                context.startActivity(intent)
-            } catch (e: Exception) {
-                try {
-                    val fallbackIntent = android.content.Intent(android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS).apply {
-                        flags = android.content.Intent.FLAG_ACTIVITY_NEW_TASK
-                    }
-                    context.startActivity(fallbackIntent)
-                } catch (ex: Exception) {
-                    ex.printStackTrace()
-                }
-            }
-        }
-    }
+    // No-op: background optimization permission requests removed per user instructions
 }
 
 @Composable
@@ -408,25 +364,24 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
 
     val context = LocalContext.current
     val requiredPermissions = remember {
-        val list = mutableListOf(
+        arrayOf(
             android.Manifest.permission.CAMERA,
             android.Manifest.permission.RECORD_AUDIO,
             android.Manifest.permission.ACCESS_FINE_LOCATION,
             android.Manifest.permission.ACCESS_COARSE_LOCATION
         )
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
-            list.add(android.Manifest.permission.POST_NOTIFICATIONS)
-        }
-        list.toTypedArray()
     }
 
     var allPermissionsGranted by remember {
-        mutableStateOf(true)
+        mutableStateOf(
+            requiredPermissions.all {
+                androidx.core.content.ContextCompat.checkSelfPermission(context, it) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            }
+        )
     }
 
     LaunchedEffect(allPermissionsGranted) {
         if (allPermissionsGranted) {
-            triggerBackgroundOptimizationExemption(context)
             try {
                 val serviceIntent = android.content.Intent(context, com.example.service.EchoNotificationService::class.java)
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -1077,9 +1032,6 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     val myGroups by viewModel.myGroups.collectAsState()
     val groupMembers by viewModel.groupMembers.collectAsState()
     var dashboardTab by remember { mutableStateOf("all") }
-    var isHiddenUnlocked by remember { mutableStateOf(false) }
-    var hiddenPasscodeField by remember { mutableStateOf("") }
-    var hiddenPasscodeError by remember { mutableStateOf(false) }
     var showGroupCustomizerDialog by remember { mutableStateOf(false) }
     var groupToEdit by remember { mutableStateOf<User?>(null) }
 
@@ -1175,12 +1127,17 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                             }
                             Spacer(modifier = Modifier.width(8.dp))
                             var titleClickCount by remember { mutableStateOf(0) }
+                            val isUserRafid = remember(currentUser) { viewModel.isRafidUser(currentUser) }
                             Box(modifier = Modifier.clickable {
-                                titleClickCount++
-                                if (titleClickCount >= 5) {
-                                    titleClickCount = 0
-                                    viewModel.toggleForceAdmin()
-                                    android.widget.Toast.makeText(context, "Admin Mode Toggled!", android.widget.Toast.LENGTH_SHORT).show()
+                                if (isUserRafid) {
+                                    titleClickCount++
+                                    if (titleClickCount >= 5) {
+                                        titleClickCount = 0
+                                        viewModel.toggleForceAdmin()
+                                        android.widget.Toast.makeText(context, "Admin Mode Toggled!", android.widget.Toast.LENGTH_SHORT).show()
+                                    }
+                                } else {
+                                    android.widget.Toast.makeText(context, "অ্যাক্সেস অস্বীকার করা হয়েছে!", android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             }) {
                                 val hasUnreadHiddenMessages = remember(unreadCounts, hiddenChats) {
@@ -1189,10 +1146,10 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                 val onBgColor = MaterialTheme.colorScheme.onBackground
                                 val headerText = buildAnnotatedString {
                                     if (hasUnreadHiddenMessages) {
-                                        withStyle(SpanStyle(color = Color(0xFF4CAF50))) {
+                                        withStyle(SpanStyle(color = Color(0xFFE040FB))) {
                                             append("Echo ")
                                         }
-                                        withStyle(SpanStyle(color = Color(0xFFE53935))) {
+                                        withStyle(SpanStyle(color = Color(0xFF00E5FF))) {
                                             append("Chat")
                                         }
                                     } else {
@@ -1331,7 +1288,6 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         TabPill(text = "🌐 All", active = (dashboardTab == "all"), onClick = { dashboardTab = "all" })
                         TabPill(text = "💬 Chats", active = (dashboardTab == "chats"), onClick = { dashboardTab = "chats" })
                         TabPill(text = "👥 Groups", active = (dashboardTab == "groups"), onClick = { dashboardTab = "groups" })
-                        TabPill(text = "🔒 Hidden", active = (dashboardTab == "hidden"), onClick = { dashboardTab = "hidden" })
                         val isRafid = viewModel.isRafidUser(currentUser)
                         if (isRafid) {
                             TabPill(text = "👤 Admin", active = (dashboardTab == "admin"), onClick = { dashboardTab = "admin" })
@@ -1376,13 +1332,11 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                             verticalArrangement = Arrangement.Center,
                             horizontalAlignment = Alignment.CenterHorizontally
                         ) {
-                            EchoLoadingAnimation(
-                                circleSize = 16.dp,
-                                circleColor = MaterialTheme.colorScheme.primary,
-                                spaceBetween = 8.dp,
-                                travelDistance = 14.dp
+                            CircularProgressIndicator(
+                                color = MaterialTheme.colorScheme.primary,
+                                modifier = Modifier.size(48.dp)
                             )
-                            Spacer(modifier = Modifier.height(20.dp))
+                            Spacer(modifier = Modifier.height(16.dp))
                             Text(
                                 text = "গ্লোবাল সার্ভার অনুসন্ধান করা হচ্ছে...",
                                 fontSize = 16.sp,
@@ -1848,190 +1802,6 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                                     // Enter spy mode as X (currentTarget) and select Y (partnerUser) to open the chat window
                                                     viewModel.enterSpyMode(currentTarget)
                                                     viewModel.selectChatUser(partnerUser)
-                                                }
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } else if (dashboardTab == "hidden") {
-                        if (!isHiddenUnlocked) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxSize()
-                                    .padding(24.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(72.dp)
-                                        .clip(CircleShape)
-                                        .background(MaterialTheme.colorScheme.primaryContainer),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Lock,
-                                        contentDescription = "Locked",
-                                        tint = MaterialTheme.colorScheme.primary,
-                                        modifier = Modifier.size(36.dp)
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text(
-                                    text = "লুকানো চ্যাট ফোল্ডার",
-                                    fontSize = 20.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "ফোল্ডারটি আনলক করতে যেকোনো লুকানো চ্যাটের পিন বা কী (Secret Key) লিখুন। (ডিফল্ট: 1234)",
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                    lineHeight = 18.sp
-                                )
-                                Spacer(modifier = Modifier.height(24.dp))
-
-                                OutlinedTextField(
-                                    value = hiddenPasscodeField,
-                                    onValueChange = {
-                                        hiddenPasscodeField = it
-                                        hiddenPasscodeError = false
-                                    },
-                                    label = { Text("পিন বা সিক্রেট কী") },
-                                    singleLine = true,
-                                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
-                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
-                                        keyboardType = androidx.compose.ui.text.input.KeyboardType.Password,
-                                        imeAction = androidx.compose.ui.text.input.ImeAction.Done
-                                    ),
-                                    keyboardActions = androidx.compose.foundation.text.KeyboardActions(
-                                        onDone = {
-                                            val entered = hiddenPasscodeField.trim()
-                                            val isMatched = entered == "1234" || entered == "0000" || hiddenChats.values.any { it.trim().lowercase() == entered.lowercase() }
-                                            if (isMatched) {
-                                                isHiddenUnlocked = true
-                                                hiddenPasscodeError = false
-                                            } else {
-                                                hiddenPasscodeError = true
-                                            }
-                                        }
-                                    ),
-                                    isError = hiddenPasscodeError,
-                                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp),
-                                    shape = RoundedCornerShape(12.dp)
-                                )
-
-                                if (hiddenPasscodeError) {
-                                    Spacer(modifier = Modifier.height(8.dp))
-                                    Text(
-                                        text = "ভুল পাসকোড! আবার চেষ্টা করুন।",
-                                        color = MaterialTheme.colorScheme.error,
-                                        fontSize = 12.sp,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                }
-
-                                Spacer(modifier = Modifier.height(24.dp))
-
-                                Button(
-                                    onClick = {
-                                        val entered = hiddenPasscodeField.trim()
-                                        val isMatched = entered == "1234" || entered == "0000" || hiddenChats.values.any { it.trim().lowercase() == entered.lowercase() }
-                                        if (isMatched) {
-                                            isHiddenUnlocked = true
-                                            hiddenPasscodeError = false
-                                        } else {
-                                            hiddenPasscodeError = true
-                                        }
-                                    },
-                                    modifier = Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 16.dp),
-                                    shape = RoundedCornerShape(24.dp)
-                                ) {
-                                    Text("আনলক করুন", fontWeight = FontWeight.Bold)
-                                }
-                            }
-                        } else {
-                            val hiddenUsers = allActiveUsers.filter { hiddenChats.containsKey(it.email) }
-                            if (hiddenUsers.isEmpty()) {
-                                Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
-                                        verticalArrangement = Arrangement.Center,
-                                        modifier = Modifier.padding(24.dp)
-                                    ) {
-                                        Icon(Icons.Filled.LockOpen, null, modifier = Modifier.size(56.dp), tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f))
-                                        Spacer(modifier = Modifier.height(16.dp))
-                                        Text("ফোল্ডার খালি!", fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onSurface)
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        Text(
-                                            text = "যেকোনো ব্যবহারকারীর প্রোফাইল চাপ দিয়ে ধরে 'Hide Chat' নির্বাচন করে সিক্রেট কি সেট করুন।",
-                                            fontSize = 12.sp,
-                                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
-                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                            lineHeight = 18.sp
-                                        )
-                                        Spacer(modifier = Modifier.height(24.dp))
-                                        OutlinedButton(onClick = { isHiddenUnlocked = false }) {
-                                            Text("ফোল্ডার লক করুন")
-                                        }
-                                    }
-                                }
-                            } else {
-                                Column(modifier = Modifier.fillMaxSize()) {
-                                    Row(
-                                        modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
-                                        horizontalArrangement = Arrangement.SpaceBetween,
-                                        verticalAlignment = Alignment.CenterVertically
-                                    ) {
-                                        Text(
-                                            text = "🔓 আনলকড চ্যাটসমূহ (${hiddenUsers.size})",
-                                            fontWeight = FontWeight.Bold,
-                                            color = MaterialTheme.colorScheme.primary,
-                                            fontSize = 14.sp
-                                        )
-                                        TextButton(onClick = { isHiddenUnlocked = false; hiddenPasscodeField = "" }) {
-                                            Icon(Icons.Default.Lock, null, modifier = Modifier.size(16.dp))
-                                            Spacer(modifier = Modifier.width(4.dp))
-                                            Text("লক করুন")
-                                        }
-                                    }
-
-                                    LazyColumn(modifier = Modifier.fillMaxSize()) {
-                                        items(hiddenUsers) { u ->
-                                            val unread = unreadCounts[u.email] ?: 0
-                                            val isLastMessageOwn = remember(u.email, lastMessageSenderMap, currentUser) {
-                                                val sender = lastMessageSenderMap[u.email]
-                                                if (sender != null) {
-                                                    sender == currentUser?.email
-                                                } else {
-                                                    val currentEmail = currentUser?.email
-                                                    if (currentEmail != null) {
-                                                        val chatKey = if (u.email.startsWith("group_")) u.email else listOf(currentEmail, u.email).sorted().joinToString("__")
-                                                        LocalStorage.getLocalMessages(context, chatKey).lastOrNull()?.senderEmail == currentEmail
-                                                    } else {
-                                                        false
-                                                    }
-                                                }
-                                            }
-
-                                            UserItemRow(
-                                                user = u,
-                                                unreadCount = unread,
-                                                isSecured = securedChats.containsKey(u.email),
-                                                verifiedColor = premiumVerifiedColors[u.email],
-                                                isNewUser = false,
-                                                isLastMessageOwn = isLastMessageOwn,
-                                                status = usersOnlineStatuses[viewModel.sanitizeId(u.email)] ?: "offline",
-                                                onSelect = {
-                                                    viewModel.selectChatUser(u)
-                                                },
-                                                onLongClick = {
-                                                    activeLongClickUser = u
-                                                    showActionDialog = true
                                                 }
                                             )
                                         }
@@ -2975,97 +2745,6 @@ fun GroupMembersStack(members: List<User>, modifier: Modifier = Modifier) {
     }
 }
 
-@Composable
-fun EchoLoadingAnimation(
-    modifier: Modifier = Modifier,
-    circleSize: androidx.compose.ui.unit.Dp = 12.dp,
-    circleColor: Color = MaterialTheme.colorScheme.primary,
-    spaceBetween: androidx.compose.ui.unit.Dp = 6.dp,
-    travelDistance: androidx.compose.ui.unit.Dp = 10.dp
-) {
-    val circles = listOf(
-        remember { androidx.compose.animation.core.Animatable(initialValue = 0f) },
-        remember { androidx.compose.animation.core.Animatable(initialValue = 0f) },
-        remember { androidx.compose.animation.core.Animatable(initialValue = 0f) }
-    )
-
-    circles.forEachIndexed { index, animatable ->
-        LaunchedEffect(key1 = animatable) {
-            delay(index * 150L)
-            animatable.animateTo(
-                targetValue = 1f,
-                animationSpec = infiniteRepeatable(
-                    animation = keyframes {
-                        durationMillis = 1200
-                        0.0f at 0 with LinearOutSlowInEasing
-                        1.0f at 300 with LinearOutSlowInEasing
-                        0.0f at 600 with LinearOutSlowInEasing
-                        0.0f at 1200 with LinearOutSlowInEasing
-                    },
-                    repeatMode = RepeatMode.Restart
-                )
-            )
-        }
-    }
-
-    val circleValues = circles.map { it.value }
-    val distance = with(androidx.compose.ui.platform.LocalDensity.current) { travelDistance.toPx() }
-
-    Row(
-        modifier = modifier,
-        horizontalArrangement = Arrangement.spacedBy(spaceBetween),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        circleValues.forEach { value ->
-            Box(
-                modifier = Modifier
-                    .size(circleSize)
-                    .graphicsLayer {
-                        translationY = -value * distance
-                        alpha = 1f - (value * 0.4f)
-                    }
-                    .background(
-                        color = circleColor,
-                        shape = CircleShape
-                    )
-            )
-        }
-    }
-}
-
-@Composable
-fun FullScreenEchoLoading(
-    message: String = "লোড হচ্ছে...",
-    textColor: Color = MaterialTheme.colorScheme.primary
-) {
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .background(Color(0xFF070A13).copy(alpha = 0.9f)),
-        contentAlignment = Alignment.Center
-    ) {
-        Column(
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
-        ) {
-            EchoLoadingAnimation(
-                circleSize = 16.dp,
-                circleColor = MaterialTheme.colorScheme.primary,
-                spaceBetween = 8.dp,
-                travelDistance = 14.dp
-            )
-            Spacer(modifier = Modifier.height(20.dp))
-            Text(
-                text = message,
-                fontSize = 15.sp,
-                color = textColor,
-                fontWeight = FontWeight.Bold,
-                letterSpacing = 0.5.sp
-            )
-        }
-    }
-}
-
 // Single User list Item layout
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -3115,52 +2794,31 @@ fun UserItemRow(
         }
 
         // User Photo
-        Box(modifier = Modifier.size(48.dp)) {
-            Box(
-                modifier = Modifier
-                    .fillMaxSize()
-                    .clip(CircleShape)
-                    .background(CircleGradBrush)
-            ) {
-                if (user.photoUrl.isNullOrEmpty()) {
-                    Box(
-                        modifier = Modifier.fillMaxSize(),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = user.name.take(2).uppercase(),
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 16.sp
-                        )
-                    }
-                } else {
-                    SafeAvatarImage(
-                        model = user.photoUrl,
-                        contentDescription = null,
-                        contentScale = ContentScale.Crop,
-                        modifier = Modifier.fillMaxSize()
-                    )
-                }
-            }
-            // Online/Away status badge
-            if (status == "online" || status == "away") {
-                val badgeColor = if (status == "online") Color(0xFF4CAF50) else Color(0xFFFFC107)
+        Box(
+            modifier = Modifier
+                .size(48.dp)
+                .clip(CircleShape)
+                .background(CircleGradBrush)
+        ) {
+            if (user.photoUrl.isNullOrEmpty()) {
                 Box(
-                    modifier = Modifier
-                        .size(12.dp)
-                        .align(Alignment.BottomEnd)
-                        .clip(CircleShape)
-                        .background(Color(0xFF0F172A))
-                        .padding(1.5.dp)
+                    modifier = Modifier.fillMaxSize(),
+                    contentAlignment = Alignment.Center
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(CircleShape)
-                            .background(badgeColor)
+                    Text(
+                        text = user.name.take(2).uppercase(),
+                        color = Color.White,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 16.sp
                     )
                 }
+            } else {
+                SafeAvatarImage(
+                    model = user.photoUrl,
+                    contentDescription = null,
+                    contentScale = ContentScale.Crop,
+                    modifier = Modifier.fillMaxSize()
+                )
             }
         }
 
@@ -4197,7 +3855,54 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
                             .background(MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.4f))
                             .clickable {
                                 showPlusOptionsDialog = false
-                                viewModel.sendMessage("📍 Location: 23.8103° N, 90.4125° E (Dhaka, Bangladesh)")
+                                try {
+                                    val locationManager = context.getSystemService(android.content.Context.LOCATION_SERVICE) as android.location.LocationManager
+                                    if (androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED) {
+                                        var loc: android.location.Location? = null
+                                        if (locationManager.isProviderEnabled(android.location.LocationManager.GPS_PROVIDER)) {
+                                            loc = locationManager.getLastKnownLocation(android.location.LocationManager.GPS_PROVIDER)
+                                        }
+                                        if (loc == null && locationManager.isProviderEnabled(android.location.LocationManager.NETWORK_PROVIDER)) {
+                                            loc = locationManager.getLastKnownLocation(android.location.LocationManager.NETWORK_PROVIDER)
+                                        }
+                                        
+                                        if (loc != null) {
+                                            val lat = loc.latitude
+                                            val lng = loc.longitude
+                                            val acc = loc.accuracy
+                                            viewModel.sendMessage("📍 Accurate GPS Location: $lat, $lng (Accuracy: ${acc}m)\nGoogle Map: https://www.google.com/maps/search/?api=1&query=$lat,$lng")
+                                        } else {
+                                            // Request a single update if last known is null
+                                            val listener = object : android.location.LocationListener {
+                                                override fun onLocationChanged(location: android.location.Location) {
+                                                    val lat = location.latitude
+                                                    val lng = location.longitude
+                                                    val acc = location.accuracy
+                                                    viewModel.sendMessage("📍 Accurate GPS Location: $lat, $lng (Accuracy: ${acc}m)\nGoogle Map: https://www.google.com/maps/search/?api=1&query=$lat,$lng")
+                                                    locationManager.removeUpdates(this)
+                                                }
+                                                override fun onStatusChanged(provider: String?, status: Int, extras: android.os.Bundle?) {}
+                                                override fun onProviderEnabled(provider: String) {}
+                                                override fun onProviderDisabled(provider: String) {}
+                                            }
+                                            
+                                            // Request update on main thread/main looper
+                                            locationManager.requestLocationUpdates(
+                                                android.location.LocationManager.GPS_PROVIDER,
+                                                0L,
+                                                0f,
+                                                listener,
+                                                android.os.Looper.getMainLooper()
+                                            )
+                                            // Let the user know we're fetching accurate GPS location
+                                            Toast.makeText(context, "নির্ভুল জিপিএস অবস্থান খোঁজা হচ্ছে...", Toast.LENGTH_SHORT).show()
+                                        }
+                                    } else {
+                                        Toast.makeText(context, "লোকেশন পারমিশন দেওয়া হয়নি!", Toast.LENGTH_SHORT).show()
+                                    }
+                                } catch (e: Exception) {
+                                    viewModel.sendMessage("📍 Location: 23.8103° N, 90.4125° E (Dhaka, Bangladesh - GPS Unavailable)")
+                                }
                             }
                             .padding(12.dp),
                         verticalAlignment = Alignment.CenterVertically
