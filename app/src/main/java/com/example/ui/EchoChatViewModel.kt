@@ -296,6 +296,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         val verified = LocalStorage.getVerifiedUsers(context).toMutableMap()
         verified["md.r.rafid1234@gmail.com"] = "gold"
         _premiumVerifiedColors.value = verified
+        loadCustomBadWords()
     }
 
     fun loadPremiumCodesFromSheet(onDone: () -> Unit = {}) {
@@ -2810,7 +2811,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         )
         
         // 1. Check local keywords first (fast/instant check)
-        if (adultKeywords.any { lower.contains(it) }) {
+        val mergedKeywords = adultKeywords + _customBadWords.value
+        if (mergedKeywords.any { lower.contains(it) }) {
             return true
         }
 
@@ -3137,6 +3139,80 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 FirebaseRestClient.service.setValue("blocked_users/$userKey", false)
                 FirebaseRestClient.service.setValue("offensive_count/$userKey", 0)
                 loadBlockedUsers()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun blockUser(email: String) {
+        val userKey = sanitizeId(email)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                FirebaseRestClient.service.setValue("blocked_users/$userKey", true)
+                loadBlockedUsers()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private val _customBadWords = MutableStateFlow<List<String>>(emptyList())
+    val customBadWords: StateFlow<List<String>> = _customBadWords.asStateFlow()
+
+    fun loadCustomBadWords() {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val raw = FirebaseRestClient.service.getValue("admin_bad_words") as? Map<*, *>
+                val list = mutableListOf<String>()
+                raw?.forEach { (_, v) ->
+                    val word = v?.toString()?.trim()?.lowercase()
+                    if (!word.isNullOrEmpty()) {
+                        list.add(word)
+                    }
+                }
+                withContext(Dispatchers.Main) {
+                    _customBadWords.value = list.distinct()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun addCustomBadWord(word: String) {
+        val trimmed = word.trim().lowercase()
+        if (trimmed.isEmpty()) return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val currentList = _customBadWords.value.toMutableList()
+                if (!currentList.contains(trimmed)) {
+                    currentList.add(trimmed)
+                    val key = trimmed.replace(".", "_")
+                        .replace("#", "_")
+                        .replace("$", "_")
+                        .replace("[", "_")
+                        .replace("]", "_")
+                    FirebaseRestClient.service.setValue("admin_bad_words/$key", trimmed)
+                    loadCustomBadWords()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun removeCustomBadWord(word: String) {
+        val trimmed = word.trim().lowercase()
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val key = trimmed.replace(".", "_")
+                    .replace("#", "_")
+                    .replace("$", "_")
+                    .replace("[", "_")
+                    .replace("]", "_")
+                FirebaseRestClient.service.deleteValue("admin_bad_words/$key")
+                loadCustomBadWords()
             } catch (e: Exception) {
                 e.printStackTrace()
             }

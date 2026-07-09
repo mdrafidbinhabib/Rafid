@@ -484,11 +484,46 @@ fun AuthScreen(viewModel: EchoChatViewModel) {
     var password by remember { mutableStateOf("") }
     var name by remember { mutableStateOf("") }
     var base64Photo by remember { mutableStateOf("") }
-    var photoName by remember { mutableStateOf("No file chosen") }
+    var photoName by remember { mutableStateOf("কোনো ছবি নির্বাচন করা হয়নি") }
+
+    val authImagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent()
+    ) { uri: Uri? ->
+        if (uri != null) {
+            try {
+                val inputStream = context.contentResolver.openInputStream(uri)
+                val originalBitmap = android.graphics.BitmapFactory.decodeStream(inputStream)
+                if (originalBitmap != null) {
+                    val size = 150
+                    val scaledBitmap = if (originalBitmap.width > size || originalBitmap.height > size) {
+                        val ratio = originalBitmap.width.toFloat() / originalBitmap.height.toFloat()
+                        val (w, h) = if (ratio > 1) {
+                            Pair(size, (size / ratio).toInt())
+                        } else {
+                            Pair((size * ratio).toInt(), size)
+                        }
+                        android.graphics.Bitmap.createScaledBitmap(originalBitmap, w, h, true)
+                    } else {
+                        originalBitmap
+                    }
+                    val baos = java.io.ByteArrayOutputStream()
+                    scaledBitmap.compress(android.graphics.Bitmap.CompressFormat.JPEG, 85, baos)
+                    val bytes = baos.toByteArray()
+                    val b64 = android.util.Base64.encodeToString(bytes, android.util.Base64.NO_WRAP)
+                    base64Photo = "data:image/jpeg;base64,$b64"
+                    photoName = "ছবি সফলভাবে যুক্ত হয়েছে ✔"
+                }
+            } catch (e: Exception) {
+                Toast.makeText(context, "ছবি লোড করতে ব্যর্থ", Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
 
     // Forgot password fields
     var forgotStep by remember { mutableStateOf(1) } // 1, 2, 3
     var forgotEmail by remember { mutableStateOf("") }
+    var forgotPartnerEmail by remember { mutableStateOf("") }
+    var forgotViaPartner by remember { mutableStateOf(false) }
     var forgotCode by remember { mutableStateOf("") }
     var forgotNewPass by remember { mutableStateOf("") }
 
@@ -749,9 +784,7 @@ fun AuthScreen(viewModel: EchoChatViewModel) {
                         ) {
                             Button(
                                 onClick = {
-                                    // Custom visual photo select mockup or link field
-                                    base64Photo = "data:image/png;base64,mock"
-                                    photoName = "Selected Photo url"
+                                    authImagePickerLauncher.launch("image/*")
                                 },
                                 shape = RoundedCornerShape(8.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
@@ -762,7 +795,7 @@ fun AuthScreen(viewModel: EchoChatViewModel) {
                             Text(
                                 text = photoName,
                                 fontSize = 12.sp,
-                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                                color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.8f),
                                 maxLines = 1,
                                 overflow = TextOverflow.Ellipsis,
                                 modifier = Modifier.weight(1f)
@@ -811,21 +844,68 @@ fun AuthScreen(viewModel: EchoChatViewModel) {
                             OutlinedTextField(
                                 value = forgotEmail,
                                 onValueChange = { forgotEmail = it },
-                                label = { Text("User ID/Email") },
+                                label = { Text("আপনার ইমেইল (My Email)") },
                                 leadingIcon = { Icon(Icons.Default.Email, null) },
                                 modifier = Modifier.fillMaxWidth(),
                                 singleLine = true
                             )
+
+                            Spacer(modifier = Modifier.height(12.dp))
+
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clickable { forgotViaPartner = !forgotViaPartner }
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Checkbox(
+                                    checked = forgotViaPartner,
+                                    onCheckedChange = { forgotViaPartner = it }
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text(
+                                    text = "পেয়ারকৃত মেম্বারের মাধ্যমে পাসওয়ার্ড রিসেট করুন",
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                            }
+
+                            if (forgotViaPartner) {
+                                Spacer(modifier = Modifier.height(12.dp))
+                                OutlinedTextField(
+                                    value = forgotPartnerEmail,
+                                    onValueChange = { forgotPartnerEmail = it },
+                                    label = { Text("পেয়ারকৃত মেম্বারের ইমেইল (Partner Email)") },
+                                    leadingIcon = { Icon(Icons.Default.People, null) },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "💡 নির্দেশনাঃ কোডটি আপনার পেয়ার করা পার্টনারের অ্যাপ স্ক্রিনে পাঠানো হবে। কোডটি পার্টনারের থেকে সংগ্রহ করুন।",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.secondary,
+                                    lineHeight = 15.sp
+                                )
+                            }
 
                             Spacer(modifier = Modifier.height(16.dp))
 
                             Button(
                                 onClick = {
                                     if (forgotEmail.trim().isEmpty()) {
-                                        Toast.makeText(context, "ইমেইল প্রদান করুন", Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, "আপনার ইমেইল প্রদান করুন", Toast.LENGTH_SHORT).show()
+                                    } else if (forgotViaPartner && forgotPartnerEmail.trim().isEmpty()) {
+                                        Toast.makeText(context, "পার্টনারের ইমেইল প্রদান করুন", Toast.LENGTH_SHORT).show()
                                     } else {
                                         viewModel.requestForgotPasswordCode(forgotEmail.trim(), {
-                                            Toast.makeText(context, "রিসেট কোড পাঠানো হয়েছে!", Toast.LENGTH_SHORT).show()
+                                            if (forgotViaPartner) {
+                                                Toast.makeText(context, "কোডটি আপনার পার্টনারের অ্যাপ স্ক্রিনে পাঠানো হয়েছে!", Toast.LENGTH_LONG).show()
+                                            } else {
+                                                Toast.makeText(context, "রিসেট কোড পাঠানো হয়েছে!", Toast.LENGTH_SHORT).show()
+                                            }
                                             forgotStep = 2
                                         }, { err ->
                                             Toast.makeText(context, err, Toast.LENGTH_LONG).show()
@@ -1013,6 +1093,8 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
 
     val myGroups by viewModel.myGroups.collectAsState()
     val groupMembers by viewModel.groupMembers.collectAsState()
+    val partnerResetCode by viewModel.partnerResetCode.collectAsState()
+    val clipboardManager = androidx.compose.ui.platform.LocalClipboardManager.current
     var dashboardTab by remember { mutableStateOf("all") }
     var showGroupCustomizerDialog by remember { mutableStateOf(false) }
     var groupToEdit by remember { mutableStateOf<User?>(null) }
@@ -1222,6 +1304,62 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                     .fillMaxSize()
                     .padding(padding)
             ) {
+                if (partnerResetCode != null) {
+                    Card(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onErrorContainer,
+                                modifier = Modifier.size(24.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = "⚠️ পাসওয়ার্ড রিসেট অনুরোধ",
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer
+                                )
+                                Spacer(modifier = Modifier.height(2.dp))
+                                Text(
+                                    text = "আপনার পার্টনার পাসওয়ার্ড রিসেট করতে চান। তাকে এই কোডটি দিনঃ",
+                                    fontSize = 11.sp,
+                                    color = MaterialTheme.colorScheme.onErrorContainer.copy(alpha = 0.8f)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = partnerResetCode ?: "",
+                                    fontSize = 20.sp,
+                                    fontWeight = FontWeight.ExtraBold,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                    letterSpacing = 2.sp
+                                )
+                            }
+                            Spacer(modifier = Modifier.width(8.dp))
+                            IconButton(
+                                onClick = {
+                                    clipboardManager.setText(androidx.compose.ui.text.AnnotatedString(partnerResetCode ?: ""))
+                                    Toast.makeText(context, "কোড কপি করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                }
+                            ) {
+                                Icon(Icons.Default.ContentCopy, contentDescription = "Copy Code", tint = MaterialTheme.colorScheme.onErrorContainer)
+                            }
+                        }
+                    }
+                }
+
                 if (spyingOnUser != null) {
                     Card(
                         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.errorContainer),
@@ -1641,46 +1779,68 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
+                                        .horizontalScroll(rememberScrollState())
                                         .padding(8.dp),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
                                     Button(
                                         onClick = { adminSubTab = "spy" },
-                                        modifier = Modifier.weight(1f),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = if (adminSubTab == "spy") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                                             contentColor = if (adminSubTab == "spy") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                                         ),
                                         shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(0.dp)
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                                     ) {
                                         Text("🔍 Spying (স্পাই)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
                                     
                                     Button(
                                         onClick = { adminSubTab = "unblock" },
-                                        modifier = Modifier.weight(1f),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = if (adminSubTab == "unblock") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                                             contentColor = if (adminSubTab == "unblock") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                                         ),
                                         shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(0.dp)
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                                     ) {
                                         Text("🤝 Unblock (আনব্লক)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
                                     
                                     Button(
                                         onClick = { adminSubTab = "privacy" },
-                                        modifier = Modifier.weight(1f),
                                         colors = ButtonDefaults.buttonColors(
                                             containerColor = if (adminSubTab == "privacy") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                                             contentColor = if (adminSubTab == "privacy") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
                                         ),
                                         shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(0.dp)
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                                     ) {
                                         Text("🔒 Privacy (প্রাইভেসি)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Button(
+                                        onClick = { adminSubTab = "block" },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (adminSubTab == "block") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                            contentColor = if (adminSubTab == "block") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                    ) {
+                                        Text("🚫 Block (ব্লক)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+
+                                    Button(
+                                        onClick = { adminSubTab = "language" },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (adminSubTab == "language") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                            contentColor = if (adminSubTab == "language") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                    ) {
+                                        Text("🗣️ Word (ভাষা)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
                                 }
 
@@ -1924,6 +2084,189 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                                                 checked = isAllowed,
                                                                 onCheckedChange = { viewModel.toggleAdminAllowedUser(u.email) }
                                                             )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else if (adminSubTab == "block") {
+                                    val blockedMap by viewModel.blockedUsersMap.collectAsState()
+                                    var adminBlockSearchQuery by remember { mutableStateOf("") }
+                                    
+                                    Column(modifier = Modifier.fillMaxSize()) {
+                                        OutlinedTextField(
+                                            value = adminBlockSearchQuery,
+                                            onValueChange = { adminBlockSearchQuery = it },
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(horizontal = 16.dp, vertical = 8.dp),
+                                            placeholder = { Text("ব্লক করার জন্য ইউজার খুঁজুন...", color = Color.Gray) },
+                                            leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.primary) },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                            )
+                                        )
+                                        
+                                        val nonBlockedUsers = allActiveUsers.filter { u ->
+                                            !viewModel.isRafidUser(u) && blockedMap[viewModel.sanitizeId(u.email)] != true
+                                        }.filter { u ->
+                                            u.name.lowercase().contains(adminBlockSearchQuery.lowercase()) ||
+                                            u.email.lowercase().contains(adminBlockSearchQuery.lowercase())
+                                        }
+
+                                        if (nonBlockedUsers.isEmpty()) {
+                                            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                                                Text(
+                                                    if (adminBlockSearchQuery.isEmpty()) "কোনো সক্রিয় অ্যাকাউন্ট নেই" else "কোনো সক্রিয় অ্যাকাউন্ট পাওয়া যায়নি!",
+                                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f)
+                                                )
+                                            }
+                                        } else {
+                                            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                                items(nonBlockedUsers) { u ->
+                                                    Card(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .padding(horizontal = 16.dp, vertical = 6.dp),
+                                                        colors = CardDefaults.cardColors(
+                                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f)
+                                                        )
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(16.dp),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Column(modifier = Modifier.weight(1f)) {
+                                                                Text(u.name, fontWeight = FontWeight.Bold, color = Color.White)
+                                                                Text(u.email, fontSize = 12.sp, color = Color.LightGray)
+                                                            }
+                                                            Button(
+                                                                onClick = { viewModel.blockUser(u.email) },
+                                                                colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                                                            ) {
+                                                                Text("ব্লক (Block)", fontWeight = FontWeight.Bold, color = Color.White)
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                } else if (adminSubTab == "language") {
+                                    val customBadWords by viewModel.customBadWords.collectAsState()
+                                    var newBadWord by remember { mutableStateOf("") }
+                                    
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(16.dp)
+                                    ) {
+                                        Text(
+                                            text = "🗣️ মডারেশন ও ফিল্টার ভাষা (Bad Words Filter)",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.height(6.dp))
+                                        Text(
+                                            text = "ব্যবহারকারীরা চ্যাট উইন্ডোতে নিচের শব্দগুলো ব্যবহার করতে পারবে না। ইউজার ৩বার খারাপ শব্দ ব্যবহার করলে স্বয়ংক্রিয়ভাবে ব্লক হয়ে যাবে।",
+                                            fontSize = 11.sp,
+                                            color = Color.LightGray,
+                                            lineHeight = 15.sp
+                                        )
+                                        
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            OutlinedTextField(
+                                                value = newBadWord,
+                                                onValueChange = { newBadWord = it },
+                                                placeholder = { Text("নতুন খারাপ শব্দ লিখুন...", color = Color.Gray) },
+                                                singleLine = true,
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(8.dp)
+                                            )
+                                            Button(
+                                                onClick = {
+                                                    if (newBadWord.trim().isNotEmpty()) {
+                                                        viewModel.addCustomBadWord(newBadWord.trim())
+                                                        newBadWord = ""
+                                                    }
+                                                },
+                                                shape = RoundedCornerShape(8.dp),
+                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.primary)
+                                            ) {
+                                                Text("যোগ করুন")
+                                            }
+                                        }
+                                        
+                                        Spacer(modifier = Modifier.height(16.dp))
+                                        
+                                        Text(
+                                            text = "ফিল্টারকৃত শব্দসমূহ (${customBadWords.size}):",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.secondary
+                                        )
+                                        
+                                        Spacer(modifier = Modifier.height(8.dp))
+                                        
+                                        if (customBadWords.isEmpty()) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .weight(1f),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text("কোনো কাস্টম শব্দ যোগ করা হয়নি।", color = Color.Gray, fontSize = 13.sp)
+                                            }
+                                        } else {
+                                            LazyColumn(
+                                                modifier = Modifier
+                                                    .fillMaxWidth()
+                                                    .weight(1f),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                items(customBadWords) { word ->
+                                                    Card(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        colors = CardDefaults.cardColors(
+                                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.2f)
+                                                        )
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Text(
+                                                                text = word,
+                                                                fontWeight = FontWeight.SemiBold,
+                                                                color = Color.White,
+                                                                fontSize = 14.sp
+                                                            )
+                                                            IconButton(
+                                                                onClick = { viewModel.removeCustomBadWord(word) }
+                                                            ) {
+                                                                Icon(
+                                                                    imageVector = Icons.Default.Delete,
+                                                                    contentDescription = "Delete bad word",
+                                                                    tint = MaterialTheme.colorScheme.error
+                                                                )
+                                                            }
                                                         }
                                                     }
                                                 }
