@@ -403,6 +403,40 @@ object LocalStorage {
     fun markSeenTemporaryChatWarning(context: Context, email: String) {
         getPrefs(context).edit().putBoolean("SEEN_TEMP_WARNING_$email", true).apply()
     }
+
+    fun getNotifiedMessageIds(context: Context): Set<String> {
+        val user = getLoggedInUser(context)
+        val suffix = user?.email?.lowercase()?.trim() ?: "default"
+        return getPrefs(context).getStringSet("NOTIFIED_MESSAGE_IDS_$suffix", emptySet()) ?: emptySet()
+    }
+
+    fun addNotifiedMessageId(context: Context, id: String) {
+        val prefs = getPrefs(context)
+        val user = getLoggedInUser(context)
+        val suffix = user?.email?.lowercase()?.trim() ?: "default"
+        val key = "NOTIFIED_MESSAGE_IDS_$suffix"
+        val current = prefs.getStringSet(key, emptySet())?.toMutableSet() ?: mutableSetOf()
+        current.add(id)
+        if (current.size > 1000) {
+            val sortedList = current.toList().takeLast(500)
+            prefs.edit().putStringSet(key, sortedList.toSet()).apply()
+        } else {
+            prefs.edit().putStringSet(key, current).apply()
+        }
+    }
+
+    fun getBlockedUsersByUser(context: Context): Set<String> {
+        val user = getLoggedInUser(context)
+        val suffix = user?.email?.lowercase()?.trim() ?: "default"
+        return getPrefs(context).getStringSet("USER_BLOCKED_USERS_$suffix", emptySet()) ?: emptySet()
+    }
+
+    fun saveBlockedUsersByUser(context: Context, userEmail: String, blockedEmails: Set<String>) {
+        val prefs = getPrefs(context)
+        val suffix = userEmail.lowercase().trim()
+        val key = "USER_BLOCKED_USERS_$suffix"
+        prefs.edit().putStringSet(key, blockedEmails).apply()
+    }
 }
 
 @JsonClass(generateAdapter = true)

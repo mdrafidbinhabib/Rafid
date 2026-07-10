@@ -39,6 +39,13 @@ class EchoNotificationService : Service() {
     override fun onCreate() {
         super.onCreate()
         
+        // Load notified messages from storage
+        try {
+            notifiedMessages.addAll(LocalStorage.getNotifiedMessageIds(applicationContext))
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+        
         // Acquire CPU wake lock to ensure polling works even when screen is off / locked
         try {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -200,6 +207,8 @@ class EchoNotificationService : Service() {
         }
 
         if (rawMessages != null) {
+            val isFirstInstall = LocalStorage.getNotifiedMessageIds(applicationContext).isEmpty()
+
             val hiddenChats = try {
                 LocalStorage.getHiddenChats(applicationContext)
             } catch (e: Exception) {
@@ -212,29 +221,38 @@ class EchoNotificationService : Service() {
                 emptyMap<String, Long>()
             }
 
+            val blockedUsers = try {
+                LocalStorage.getBlockedUsersByUser(applicationContext)
+            } catch (e: Exception) {
+                emptySet<String>()
+            }
+
             for (msg in rawMessages) {
                 val msgId = msg.id ?: msg.timestamp ?: continue
                 val senderEmail = msg.sender?.lowercase() ?: ""
                 val participants = msg.getParticipantsList().map { it.lowercase() }
 
-                if (participants.contains(myEmail) && senderEmail != myEmail) {
+                if (participants.contains(myEmail) && senderEmail != myEmail && !blockedUsers.contains(senderEmail)) {
                     if (!notifiedMessages.contains(msgId)) {
                         notifiedMessages.add(msgId)
+                        LocalStorage.addNotifiedMessageId(applicationContext, msgId)
                         
-                        // Check if muted
-                        val muteExpiry = mutedChats[senderEmail] ?: mutedChats[msg.sender?.lowercase()] ?: 0L
-                        val isMuted = if (muteExpiry == Long.MAX_VALUE) {
-                            true
-                        } else {
-                            System.currentTimeMillis() < muteExpiry
-                        }
-                        
-                        if (isMuted) {
-                            continue // Suppress notifications completely if muted
-                        }
+                        // If it's the very first poll ever (after installation / clean cache),
+                        // we just record the messages to avoid a notification flood.
+                        // Otherwise, we notify!
+                        if (!isFirstInstall) {
+                            // Check if muted
+                            val muteExpiry = mutedChats[senderEmail] ?: mutedChats[msg.sender?.lowercase()] ?: 0L
+                            val isMuted = if (muteExpiry == Long.MAX_VALUE) {
+                                true
+                            } else {
+                                System.currentTimeMillis() < muteExpiry
+                            }
+                            
+                            if (isMuted) {
+                                continue // Suppress notifications completely if muted
+                            }
 
-                        // Only show notifications for messages that arrive AFTER service is initialized and polling
-                        if (!isFirstMessagePoll) {
                             val isSenderHidden = hiddenChats.keys.any { it.equals(senderEmail, ignoreCase = true) }
                             if (isSenderHidden) {
                                 showChatNotification("নিউ এসএমএস", "নিউ এসএমএস", isHidden = true)
@@ -246,7 +264,6 @@ class EchoNotificationService : Service() {
                     }
                 }
             }
-            isFirstMessagePoll = false
         }
     }
 

@@ -150,10 +150,14 @@ fun SafeAvatarImage(
 fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
     val context = LocalContext.current
     val permissions = remember {
-        arrayOf(
+        val list = mutableListOf(
             android.Manifest.permission.ACCESS_FINE_LOCATION,
             android.Manifest.permission.ACCESS_COARSE_LOCATION
         )
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            list.add(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        list.toTypedArray()
     }
 
     var permissionsGrantedState by remember {
@@ -170,11 +174,18 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
         val fineLocationOk = results[android.Manifest.permission.ACCESS_FINE_LOCATION] == true
         val coarseLocationOk = results[android.Manifest.permission.ACCESS_COARSE_LOCATION] == true
 
-        if (fineLocationOk || coarseLocationOk) {
+        val postNotificationOk = if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            results[android.Manifest.permission.POST_NOTIFICATIONS] == true
+        } else {
+            true
+        }
+        val locationOk = fineLocationOk || coarseLocationOk
+
+        if (locationOk && postNotificationOk) {
             permissionsGrantedState = true
             onAllGranted()
         } else {
-            Toast.makeText(context, "অ্যাপটি ব্যবহারের জন্য লোকেশন পারমিশন আবশ্যক!", Toast.LENGTH_LONG).show()
+            Toast.makeText(context, "অ্যাপটি ব্যবহারের জন্য লোকেশন ও নোটিফিকেশন পারমিশন আবশ্যক!", Toast.LENGTH_LONG).show()
         }
     }
 
@@ -252,7 +263,7 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
                     )
 
                     Text(
-                        text = "অ্যাপটি ব্যবহার করতে নিচের পারমিশনটি দেওয়া আবশ্যক। পারমিশন না দিলে অ্যাপে প্রবেশ করা যাবে না।",
+                        text = "অ্যাপটি ব্যবহার করতে নিচের পারমিশনগুলো দেওয়া আবশ্যক। পারমিশন না দিলে অ্যাপে প্রবেশ করা যাবে না।",
                         fontSize = 13.sp,
                         color = Color.White.copy(alpha = 0.7f),
                         textAlign = TextAlign.Center,
@@ -266,6 +277,14 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
                         icon = Icons.Default.LocationOn,
                         title = "লোকেশন পারমিশন (Location)",
                         desc = "আপনার অবস্থান নির্ভুলভাবে যাচাই ও শেয়ার করতে লোকেশন প্রয়োজন।"
+                    )
+
+                    Spacer(modifier = Modifier.height(4.dp))
+
+                    PermissionItemRow(
+                        icon = Icons.Default.Notifications,
+                        title = "নোটিফিকেশন পারমিশন (Notifications)",
+                        desc = "রিয়েল-টাইম এসএমএস এবং কল নোটিফিকেশন পেতে নোটিফিকেশন পারমিশন আবশ্যক।"
                     )
 
                     Spacer(modifier = Modifier.height(4.dp))
@@ -285,8 +304,8 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
                         )
                     ) {
                         Text(
-                            text = "✅ লোকেশন পারমিশন দিন",
-                            fontSize = 16.sp,
+                            text = "✅ লোকেশন ও নোটিফিকেশন পারমিশন দিন",
+                            fontSize = 15.sp,
                             fontWeight = FontWeight.Bold
                         )
                     }
@@ -1783,8 +1802,9 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         val hasPrivacyPermission = viewModel.hasAdminPermission(currentUser, "privacy")
                         val hasBlockPermission = viewModel.hasAdminPermission(currentUser, "block")
                         val hasLanguagePermission = viewModel.hasAdminPermission(currentUser, "language")
+                        val hasVerificationPermission = viewModel.hasAdminPermission(currentUser, "verification")
                         
-                        val defaultSubTab = remember(isRafid, hasSpyPermission, hasUnblockPermission, hasPrivacyPermission, hasBlockPermission, hasLanguagePermission) {
+                        val defaultSubTab = remember(isRafid, hasSpyPermission, hasUnblockPermission, hasPrivacyPermission, hasBlockPermission, hasLanguagePermission, hasVerificationPermission) {
                             when {
                                 isRafid -> "spy"
                                 hasSpyPermission -> "spy"
@@ -1792,6 +1812,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                 hasPrivacyPermission -> "privacy"
                                 hasBlockPermission -> "block"
                                 hasLanguagePermission -> "language"
+                                hasVerificationPermission -> "verification"
                                 else -> "none"
                             }
                         }
@@ -1889,6 +1910,20 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                             contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
                                         ) {
                                             Text("👥 Promoters (অ্যাডমিন)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+
+                                    if (isRafid || hasVerificationPermission) {
+                                        Button(
+                                            onClick = { adminSubTab = "verification" },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (adminSubTab == "verification") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                                contentColor = if (adminSubTab == "verification") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                        ) {
+                                            Text("✔️ Verify (ভেরিফিকেশন)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
                                 }
@@ -2384,6 +2419,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                     var permPrivacy by remember { mutableStateOf(false) }
                                     var permBlock by remember { mutableStateOf(false) }
                                     var permLanguage by remember { mutableStateOf(false) }
+                                    var permVerification by remember { mutableStateOf(false) }
 
                                     Column(
                                         modifier = Modifier
@@ -2458,6 +2494,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                                                     permPrivacy = perms.contains("privacy")
                                                                     permBlock = perms.contains("block")
                                                                     permLanguage = perms.contains("language")
+                                                                    permVerification = perms.contains("verification")
                                                                 }
                                                             },
                                                         colors = CardDefaults.cardColors(
@@ -2504,6 +2541,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                                                             "privacy" -> "প্রাইভেসি"
                                                                             "block" -> "ব্লক"
                                                                             "language" -> "ভাষা"
+                                                                            "verification" -> "ভেরিফিকেশন"
                                                                             else -> it
                                                                         }
                                                                     }.joinToString(", ")
@@ -2597,6 +2635,15 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                                             Checkbox(checked = permLanguage, onCheckedChange = { permLanguage = it })
                                                             Spacer(modifier = Modifier.width(8.dp))
                                                             Text("🗣️ খারাপ শব্দ ফিল্টার অ্যাক্সেস (Word Access)", fontSize = 13.sp)
+                                                         }
+                                                         
+                                                         Row(
+                                                             modifier = Modifier.fillMaxWidth().clickable { permVerification = !permVerification }.padding(vertical = 4.dp),
+                                                             verticalAlignment = Alignment.CenterVertically
+                                                         ) {
+                                                             Checkbox(checked = permVerification, onCheckedChange = { permVerification = it })
+                                                             Spacer(modifier = Modifier.width(8.dp))
+                                                             Text("✔️ ভেরিফিকেশন অ্যাক্সেস (Verification Access)", fontSize = 13.sp)
                                                         }
                                                     }
                                                 }
@@ -2612,6 +2659,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                                                 if (permPrivacy) activePerms.add("privacy")
                                                                 if (permBlock) activePerms.add("block")
                                                                 if (permLanguage) activePerms.add("language")
+                                                                if (permVerification) activePerms.add("verification")
                                                                 viewModel.promoteUserToAdmin(u.email, activePerms)
                                                             } else {
                                                                 viewModel.demoteAdmin(u.email)
@@ -2630,6 +2678,169 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                                 }
                                             }
                                         )
+                                    }
+                                } else if (adminSubTab == "verification") {
+                                    var adminVerificationSearchQuery by remember { mutableStateOf("") }
+                                    val verifiedMap by viewModel.premiumVerifiedColors.collectAsState()
+
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(16.dp)
+                                    ) {
+                                        Text(
+                                            text = "✔ ব্যবহারকারী ভেরিফিকেশন প্যানেল (Verification Panel)",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "এখান থেকে সকল ব্যবহারকারীকে এক ক্লিকে ভেরিফাইড করতে পারবেন অথবা ভেরিফিকেশন বাতিল করতে পারবেন। এছাড়া ব্যক্তিগতভাবেও কন্ট্রোল করতে পারবেন।",
+                                            fontSize = 11.sp,
+                                            color = Color.LightGray,
+                                            lineHeight = 15.sp
+                                        )
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                        ) {
+                                            Button(
+                                                onClick = {
+                                                    viewModel.verifyAllAccounts(allActiveUsers, "gold")
+                                                    android.widget.Toast.makeText(context, "সকল ব্যবহারকারীকে গোল্ড ভেরিফাইড করা হয়েছে!", android.widget.Toast.LENGTH_SHORT).show()
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFFFB300)),
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Text("সব গোল্ড করুন ⭐", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.Black)
+                                            }
+
+                                            Button(
+                                                onClick = {
+                                                    viewModel.unverifyAllAccounts(allActiveUsers)
+                                                    android.widget.Toast.makeText(context, "সকল ইউজারের কাস্টম ভেরিফিকেশন বাতিল করা হয়েছে!", android.widget.Toast.LENGTH_SHORT).show()
+                                                },
+                                                colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.error),
+                                                modifier = Modifier.weight(1f),
+                                                shape = RoundedCornerShape(8.dp)
+                                            ) {
+                                                Text("সব বাতিল করুন ❌", fontSize = 12.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                                            }
+                                        }
+
+                                        Spacer(modifier = Modifier.height(16.dp))
+
+                                        OutlinedTextField(
+                                            value = adminVerificationSearchQuery,
+                                            onValueChange = { adminVerificationSearchQuery = it },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            placeholder = { Text("ব্যবহারকারী খুঁজুন...", color = Color.Gray) },
+                                            leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.primary) },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                            )
+                                        )
+
+                                        Spacer(modifier = Modifier.height(12.dp))
+
+                                        val filteredVerificationUsers = allActiveUsers.filter { u ->
+                                            u.name.lowercase().contains(adminVerificationSearchQuery.lowercase()) ||
+                                            u.email.lowercase().contains(adminVerificationSearchQuery.lowercase())
+                                        }
+
+                                        if (filteredVerificationUsers.isEmpty()) {
+                                            Box(
+                                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text("কোনো ব্যবহারকারী পাওয়া যায়নি!", color = Color.Gray, fontSize = 13.sp)
+                                            }
+                                        } else {
+                                            LazyColumn(
+                                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                items(filteredVerificationUsers) { u ->
+                                                    val uEmail = u.email.lowercase().trim()
+                                                    val currentVerifiedColor = verifiedMap[uEmail]
+                                                    
+                                                    Card(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        colors = CardDefaults.cardColors(
+                                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                                        )
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(12.dp),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Column(modifier = Modifier.weight(1f)) {
+                                                                Text(u.name, fontWeight = FontWeight.Bold, color = Color.White)
+                                                                Text(u.email, fontSize = 11.sp, color = Color.LightGray)
+                                                                Text(
+                                                                    text = "স্ট্যাটাস: " + (if (currentVerifiedColor != null) "ভেরিফাইড ($currentVerifiedColor)" else "আন-ভেরিফাইড"),
+                                                                    fontSize = 11.sp,
+                                                                    color = if (currentVerifiedColor != null) Color(0xFFFFB300) else Color.Gray,
+                                                                    fontWeight = FontWeight.Bold
+                                                                )
+                                                            }
+                                                            
+                                                            Row(
+                                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                Button(
+                                                                    onClick = {
+                                                                        if (currentVerifiedColor == "gold") {
+                                                                            viewModel.setVerificationStatus(u.email, null)
+                                                                        } else {
+                                                                            viewModel.setVerificationStatus(u.email, "gold")
+                                                                        }
+                                                                    },
+                                                                    colors = ButtonDefaults.buttonColors(
+                                                                        containerColor = if (currentVerifiedColor == "gold") Color(0xFFFFB300) else Color.Gray.copy(alpha = 0.3f),
+                                                                        contentColor = if (currentVerifiedColor == "gold") Color.Black else Color.White
+                                                                    ),
+                                                                    shape = RoundedCornerShape(6.dp),
+                                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                                                ) {
+                                                                    Text("Gold ⭐", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                                }
+
+                                                                Button(
+                                                                    onClick = {
+                                                                        if (currentVerifiedColor == "blue") {
+                                                                            viewModel.setVerificationStatus(u.email, null)
+                                                                        } else {
+                                                                            viewModel.setVerificationStatus(u.email, "blue")
+                                                                        }
+                                                                    },
+                                                                    colors = ButtonDefaults.buttonColors(
+                                                                        containerColor = if (currentVerifiedColor == "blue") Color(0xFF2196F3) else Color.Gray.copy(alpha = 0.3f),
+                                                                        contentColor = Color.White
+                                                                    ),
+                                                                    shape = RoundedCornerShape(6.dp),
+                                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                                                ) {
+                                                                    Text("Blue 🔹", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                     }
                                 }
                             }
@@ -3256,6 +3467,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
         var groupName by remember { mutableStateOf(groupToEdit?.name ?: "") }
         var groupPhotoUrl by remember { mutableStateOf(groupToEdit?.photoUrl ?: "") }
         val selectedMembers = remember { mutableStateListOf<String>() }
+        var memberSearchQuery by remember { mutableStateOf("") }
 
         val groupImagePickerLauncher = rememberLauncherForActivityResult(
             contract = ActivityResultContracts.GetContent()
@@ -3384,8 +3596,23 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                     Spacer(modifier = Modifier.height(8.dp))
                     Text("গ্রুপে সদস্য যোগ করুনঃ", fontWeight = FontWeight.Bold, fontSize = 13.sp)
                     Spacer(modifier = Modifier.height(4.dp))
+                    OutlinedTextField(
+                        value = memberSearchQuery,
+                        onValueChange = { memberSearchQuery = it },
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        placeholder = { Text("সদস্য খুঁজুন...", color = Color.Gray, fontSize = 11.sp) },
+                        leadingIcon = { Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(16.dp)) },
+                        singleLine = true,
+                        shape = RoundedCornerShape(8.dp),
+                        textStyle = androidx.compose.ui.text.TextStyle(fontSize = 12.sp)
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    val filteredMembers = allActiveUsers.filter { u ->
+                        u.name.lowercase().contains(memberSearchQuery.lowercase()) ||
+                        u.email.lowercase().contains(memberSearchQuery.lowercase())
+                    }
                     LazyColumn(modifier = Modifier.weight(1f, fill = false).heightIn(max = 200.dp)) {
-                        items(allActiveUsers) { u ->
+                        items(filteredMembers) { u ->
                             Row(
                                 modifier = Modifier
                                     .fillMaxWidth()

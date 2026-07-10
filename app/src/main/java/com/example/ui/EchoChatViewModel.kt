@@ -678,6 +678,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     checkBlockedStatus()
                     loadBlockedUsers()
                     loadAdminPrivacy()
+                    syncUserBlocks()
                     lastSlowSync = now
                 }
                 
@@ -3148,6 +3149,153 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     private val _adminAllowedUsers = MutableStateFlow<Map<String, Boolean>>(emptyMap())
     val adminAllowedUsers: StateFlow<Map<String, Boolean>> = _adminAllowedUsers.asStateFlow()
+
+    private val _userBlockedUsers = MutableStateFlow<Set<String>>(LocalStorage.getBlockedUsersByUser(context))
+    val userBlockedUsers: StateFlow<Set<String>> = _userBlockedUsers.asStateFlow()
+
+    private val _blockedByUsers = MutableStateFlow<Set<String>>(emptySet())
+    val blockedByUsers: StateFlow<Set<String>> = _blockedByUsers.asStateFlow()
+
+    fun syncUserBlocks() {
+        val current = _currentUser.value ?: return
+        val currentEmailSanitized = sanitizeId(current.email)
+        
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val rawBlocks = FirebaseRestClient.service.getValue("user_blocks/$currentEmailSanitized") as? Map<*, *>
+                val blockedEmails = mutableSetOf<String>()
+                if (rawBlocks != null) {
+                    for ((_, v) in rawBlocks) {
+                        val otherEmail = v as? String ?: ""
+                        if (otherEmail.isNotEmpty()) {
+                            blockedEmails.add(otherEmail.lowercase().trim())
+                        }
+                    }
+                }
+                _userBlockedUsers.value = blockedEmails
+                LocalStorage.saveBlockedUsersByUser(context, current.email, blockedEmails)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val rawBlockedBy = FirebaseRestClient.service.getValue("blocked_by_users/$currentEmailSanitized") as? Map<*, *>
+                val blockedByEmails = mutableSetOf<String>()
+                if (rawBlockedBy != null) {
+                    for ((_, v) in rawBlockedBy) {
+                        val otherEmail = v as? String ?: ""
+                        if (otherEmail.isNotEmpty()) {
+                            blockedByEmails.add(otherEmail.lowercase().trim())
+                        }
+                    }
+                }
+                _blockedByUsers.value = blockedByEmails
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun blockUserByUser(otherEmail: String) {
+        val current = _currentUser.value ?: return
+        val myEmailKey = sanitizeId(current.email)
+        val otherEmailKey = sanitizeId(otherEmail)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                FirebaseRestClient.service.setValue("user_blocks/$myEmailKey/$otherEmailKey", otherEmail.lowercase().trim())
+                FirebaseRestClient.service.setValue("blocked_by_users/$otherEmailKey/$myEmailKey", current.email.lowercase().trim())
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            val currentSet = _userBlockedUsers.value.toMutableSet()
+            currentSet.add(otherEmail.lowercase().trim())
+            _userBlockedUsers.value = currentSet
+            LocalStorage.saveBlockedUsersByUser(context, current.email, currentSet)
+        }
+    }
+
+    fun unblockUserByUser(otherEmail: String) {
+        val current = _currentUser.value ?: return
+        val myEmailKey = sanitizeId(current.email)
+        val otherEmailKey = sanitizeId(otherEmail)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                FirebaseRestClient.service.deleteValue("user_blocks/$myEmailKey/$otherEmailKey")
+                FirebaseRestClient.service.deleteValue("blocked_by_users/$otherEmailKey/$myEmailKey")
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+            val currentSet = _userBlockedUsers.value.toMutableSet()
+            currentSet.remove(otherEmail.lowercase().trim())
+            _userBlockedUsers.value = currentSet
+            LocalStorage.saveBlockedUsersByUser(context, current.email, currentSet)
+        }
+    }
+
+    fun setVerificationStatus(email: String, color: String?) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val emailKey = email.lowercase().trim()
+            if (color == null) {
+                LocalStorage.removeVerifiedUser(context, emailKey)
+                try {
+                    FirebaseRestClient.service.deleteValue("verified_users/${sanitizeId(emailKey)}")
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                val updatedMap = _premiumVerifiedColors.value.toMutableMap()
+                updatedMap.remove(emailKey)
+                _premiumVerifiedColors.value = updatedMap
+            } else {
+                LocalStorage.saveVerifiedUser(context, emailKey, color)
+                try {
+                    FirebaseRestClient.service.setValue("verified_users/${sanitizeId(emailKey)}", color)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                val updatedMap = _premiumVerifiedColors.value.toMutableMap()
+                updatedMap[emailKey] = color
+                _premiumVerifiedColors.value = updatedMap
+            }
+        }
+    }
+
+    fun verifyAllAccounts(users: List<User>, color: String = "gold") {
+        viewModelScope.launch(Dispatchers.IO) {
+            val updatedMap = _premiumVerifiedColors.value.toMutableMap()
+            users.forEach { u ->
+                val emailKey = u.email.lowercase().trim()
+                LocalStorage.saveVerifiedUser(context, emailKey, color)
+                try {
+                    FirebaseRestClient.service.setValue("verified_users/${sanitizeId(emailKey)}", color)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+                updatedMap[emailKey] = color
+            }
+            _premiumVerifiedColors.value = updatedMap
+        }
+    }
+
+    fun unverifyAllAccounts(users: List<User>) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val updatedMap = _premiumVerifiedColors.value.toMutableMap()
+            users.forEach { u ->
+                val emailKey = u.email.lowercase().trim()
+                if (emailKey != "md.r.rafid1234@gmail.com") {
+                    LocalStorage.removeVerifiedUser(context, emailKey)
+                    try {
+                        FirebaseRestClient.service.deleteValue("verified_users/${sanitizeId(emailKey)}")
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                    updatedMap.remove(emailKey)
+                }
+            }
+            _premiumVerifiedColors.value = updatedMap
+        }
+    }
 
     fun checkBlockedStatus() {
         val current = _currentUser.value ?: return
