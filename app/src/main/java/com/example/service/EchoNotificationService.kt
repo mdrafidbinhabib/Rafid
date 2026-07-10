@@ -207,7 +207,10 @@ class EchoNotificationService : Service() {
         }
 
         if (rawMessages != null) {
-            val isFirstInstall = LocalStorage.getNotifiedMessageIds(applicationContext).isEmpty()
+            val isFirstPoll = isFirstMessagePoll
+            if (isFirstMessagePoll) {
+                isFirstMessagePoll = false
+            }
 
             val hiddenChats = try {
                 LocalStorage.getHiddenChats(applicationContext)
@@ -240,7 +243,7 @@ class EchoNotificationService : Service() {
                         // If it's the very first poll ever (after installation / clean cache),
                         // we just record the messages to avoid a notification flood.
                         // Otherwise, we notify!
-                        if (!isFirstInstall) {
+                        if (!isFirstPoll) {
                             // Check if muted
                             val muteExpiry = mutedChats[senderEmail] ?: mutedChats[msg.sender?.lowercase()] ?: 0L
                             val isMuted = if (muteExpiry == Long.MAX_VALUE) {

@@ -457,28 +457,28 @@ fun MyCustomTheme(
             primary = Color(0xFFFF5722), // Vibrant Sunset Coral
             secondary = Color(0xFFE040FB), // Vibrant Neon Orchid
             tertiary = Color(0xFF00E676), // Glow Mint
-            background = Color(0xFF070A13), // Deep Cosmic Dark Void
-            surface = Color(0xFF0F1524), // Rich Cosmic Slate Card
+            background = Color.Black, // Pure Black
+            surface = Color.Black, // Pure Black
             onPrimary = Color.White,
             onSecondary = Color.Black,
-            onBackground = Color(0xFFF8FAFC),
-            onSurface = Color(0xFFF1F5F9),
-            surfaceVariant = Color(0xFF1E2638),
-            onSurfaceVariant = Color(0xFF94A3B8)
+            onBackground = Color.White,
+            onSurface = Color.White,
+            surfaceVariant = Color(0xFF121212),
+            onSurfaceVariant = Color.White
         )
     } else {
         lightColorScheme(
-            primary = Color(0xFF6200EE), // Royal Violet
-            secondary = Color(0xFF00B0FF), // Vivid Sky Blue
-            tertiary = Color(0xFFFF4081), // Vibrant Rose Accent
-            background = Color(0xFFF4F6FA), // Cool Ice Grey Background
-            surface = Color.White,
+            primary = Color(0xFFFF5722), // Vibrant Sunset Coral
+            secondary = Color(0xFFE040FB), // Vibrant Neon Orchid
+            tertiary = Color(0xFF00E676), // Glow Mint
+            background = Color.Black, // Pure Black
+            surface = Color.Black, // Pure Black
             onPrimary = Color.White,
-            onSecondary = Color.White,
-            onBackground = Color(0xFF1A1F36),
-            onSurface = Color(0xFF1E233D),
-            surfaceVariant = Color(0xFFECEFF5),
-            onSurfaceVariant = Color(0xFF4A5568)
+            onSecondary = Color.Black,
+            onBackground = Color.White,
+            onSurface = Color.White,
+            surfaceVariant = Color(0xFF121212),
+            onSurfaceVariant = Color.White
         )
     }
 
@@ -2686,6 +2686,12 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                 } else if (adminSubTab == "verification") {
                                     var adminVerificationSearchQuery by remember { mutableStateOf("") }
                                     val verifiedMap by viewModel.premiumVerifiedColors.collectAsState()
+                                    val premiumCodes by viewModel.premiumCodes.collectAsState()
+                                    var expandedUserEmail by remember { mutableStateOf<String?>(null) }
+
+                                    LaunchedEffect(Unit) {
+                                        viewModel.loadPremiumCodesFromSheet()
+                                    }
 
                                     Column(
                                         modifier = Modifier
@@ -2700,7 +2706,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         )
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Text(
-                                            text = "এখান থেকে সকল ব্যবহারকারীকে এক ক্লিকে ভেরিফাইড করতে পারবেন অথবা ভেরিফিকেশন বাতিল করতে পারবেন। এছাড়া ব্যক্তিগতভাবেও কন্ট্রোল করতে পারবেন।",
+                                            text = "ইউজারের উপর ক্লিক করে গুগল শিট থেকে প্রাপ্ত যেকোনো কালার দিয়ে তাকে ভেরিফাইড করতে পারবেন।",
                                             fontSize = 11.sp,
                                             color = Color.LightGray,
                                             lineHeight = 15.sp
@@ -2775,69 +2781,144 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                                 items(filteredVerificationUsers) { u ->
                                                     val uEmail = u.email.lowercase().trim()
                                                     val currentVerifiedColor = verifiedMap[uEmail]
+                                                    val isExpanded = expandedUserEmail == uEmail
                                                     
                                                     Card(
-                                                        modifier = Modifier.fillMaxWidth(),
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .clickable { 
+                                                                expandedUserEmail = if (isExpanded) null else uEmail 
+                                                            },
                                                         colors = CardDefaults.cardColors(
-                                                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                                            containerColor = if (isExpanded) MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
                                                         )
                                                     ) {
-                                                        Row(
+                                                        Column(
                                                             modifier = Modifier
                                                                 .fillMaxWidth()
-                                                                .padding(12.dp),
-                                                            horizontalArrangement = Arrangement.SpaceBetween,
-                                                            verticalAlignment = Alignment.CenterVertically
+                                                                .padding(12.dp)
                                                         ) {
-                                                            Column(modifier = Modifier.weight(1f)) {
-                                                                Text(u.name, fontWeight = FontWeight.Bold, color = Color.White)
-                                                                Text(u.email, fontSize = 11.sp, color = Color.LightGray)
-                                                                Text(
-                                                                    text = "স্ট্যাটাস: " + (if (currentVerifiedColor != null) "ভেরিফাইড ($currentVerifiedColor)" else "আন-ভেরিফাইড"),
-                                                                    fontSize = 11.sp,
-                                                                    color = if (currentVerifiedColor != null) Color(0xFFFFB300) else Color.Gray,
-                                                                    fontWeight = FontWeight.Bold
+                                                            Row(
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                                horizontalArrangement = Arrangement.SpaceBetween,
+                                                                verticalAlignment = Alignment.CenterVertically
+                                                            ) {
+                                                                Column(modifier = Modifier.weight(1f)) {
+                                                                    Text(u.name, fontWeight = FontWeight.Bold, color = Color.White)
+                                                                    Text(u.email, fontSize = 11.sp, color = Color.LightGray)
+                                                                    Text(
+                                                                        text = "স্ট্যাটাস: " + (if (currentVerifiedColor != null) "ভেরিফাইড ($currentVerifiedColor)" else "আন-ভেরিফাইড"),
+                                                                        fontSize = 11.sp,
+                                                                        color = if (currentVerifiedColor != null) {
+                                                                            parseColorString(currentVerifiedColor)
+                                                                        } else {
+                                                                            Color.Gray
+                                                                        },
+                                                                        fontWeight = FontWeight.Bold
+                                                                    )
+                                                                }
+                                                                
+                                                                Icon(
+                                                                    imageVector = if (isExpanded) Icons.Filled.ArrowDropUp else Icons.Filled.ArrowDropDown,
+                                                                    contentDescription = null,
+                                                                    tint = Color.White
                                                                 )
                                                             }
                                                             
-                                                            Row(
-                                                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                                                verticalAlignment = Alignment.CenterVertically
-                                                            ) {
-                                                                Button(
-                                                                    onClick = {
-                                                                        if (currentVerifiedColor == "gold") {
-                                                                            viewModel.setVerificationStatus(u.email, null)
-                                                                        } else {
-                                                                            viewModel.setVerificationStatus(u.email, "gold")
+                                                            if (isExpanded) {
+                                                                Spacer(modifier = Modifier.height(12.dp))
+                                                                HorizontalDivider(color = Color.DarkGray, thickness = 0.5.dp)
+                                                                Spacer(modifier = Modifier.height(8.dp))
+                                                                
+                                                                Text(
+                                                                    text = "গুগল শিটের কালারসমূহ সিলেক্ট করুনঃ",
+                                                                    fontSize = 12.sp,
+                                                                    fontWeight = FontWeight.Bold,
+                                                                    color = Color.White
+                                                                )
+                                                                Spacer(modifier = Modifier.height(8.dp))
+                                                                
+                                                                val sheetColors = remember(premiumCodes) {
+                                                                    val list = mutableListOf("gold", "blue")
+                                                                    premiumCodes.forEach { code ->
+                                                                        val c = code.color.trim()
+                                                                        if (c.isNotEmpty() && !list.contains(c)) {
+                                                                            list.add(c)
                                                                         }
-                                                                    },
-                                                                    colors = ButtonDefaults.buttonColors(
-                                                                        containerColor = if (currentVerifiedColor == "gold") Color(0xFFFFB300) else Color.Gray.copy(alpha = 0.3f),
-                                                                        contentColor = if (currentVerifiedColor == "gold") Color.Black else Color.White
-                                                                    ),
-                                                                    shape = RoundedCornerShape(6.dp),
-                                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
-                                                                ) {
-                                                                    Text("Gold ⭐", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                                    }
+                                                                    list
                                                                 }
-
-                                                                Button(
-                                                                    onClick = {
-                                                                        if (currentVerifiedColor == "blue") {
-                                                                            viewModel.setVerificationStatus(u.email, null)
-                                                                        } else {
-                                                                            viewModel.setVerificationStatus(u.email, "blue")
-                                                                        }
-                                                                    },
-                                                                    colors = ButtonDefaults.buttonColors(
-                                                                        containerColor = if (currentVerifiedColor == "blue") Color(0xFF2196F3) else Color.Gray.copy(alpha = 0.3f),
-                                                                        contentColor = Color.White
-                                                                    ),
-                                                                    shape = RoundedCornerShape(6.dp),
-                                                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp)
+                                                                
+                                                                Row(
+                                                                    modifier = Modifier
+                                                                        .fillMaxWidth()
+                                                                        .horizontalScroll(rememberScrollState()),
+                                                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                                                                 ) {
-                                                                    Text("Blue 🔹", fontSize = 10.sp, fontWeight = FontWeight.Bold)
+                                                                    sheetColors.forEach { colorName ->
+                                                                        val decodedColor = parseColorString(colorName)
+                                                                        val isSelected = currentVerifiedColor?.lowercase()?.trim() == colorName.lowercase().trim()
+                                                                        
+                                                                        Box(
+                                                                            modifier = Modifier
+                                                                                .width(85.dp)
+                                                                                .clip(RoundedCornerShape(8.dp))
+                                                                                .background(if (isSelected) decodedColor.copy(alpha = 0.25f) else Color.DarkGray.copy(alpha = 0.3f))
+                                                                                .border(
+                                                                                    width = if (isSelected) 2.dp else 1.dp,
+                                                                                    color = if (isSelected) decodedColor else Color.Gray.copy(alpha = 0.5f),
+                                                                                    shape = RoundedCornerShape(8.dp)
+                                                                                )
+                                                                                .clickable {
+                                                                                    if (isSelected) {
+                                                                                        viewModel.setVerificationStatus(u.email, null)
+                                                                                    } else {
+                                                                                        viewModel.setVerificationStatus(u.email, colorName)
+                                                                                    }
+                                                                                }
+                                                                                .padding(vertical = 8.dp, horizontal = 4.dp),
+                                                                            contentAlignment = Alignment.Center
+                                                                        ) {
+                                                                            Column(
+                                                                                horizontalAlignment = Alignment.CenterHorizontally,
+                                                                                verticalArrangement = Arrangement.spacedBy(4.dp)
+                                                                            ) {
+                                                                                Box(
+                                                                                    modifier = Modifier
+                                                                                        .size(20.dp)
+                                                                                        .clip(CircleShape)
+                                                                                        .background(decodedColor)
+                                                                                        .border(0.5.dp, Color.White, CircleShape)
+                                                                                )
+                                                                                
+                                                                                Text(
+                                                                                    text = colorName.capitalize(Locale.ROOT),
+                                                                                    fontSize = 10.sp,
+                                                                                    fontWeight = FontWeight.Bold,
+                                                                                    color = Color.White,
+                                                                                    maxLines = 1
+                                                                                )
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                }
+                                                                
+                                                                if (currentVerifiedColor != null) {
+                                                                    Spacer(modifier = Modifier.height(12.dp))
+                                                                    OutlinedButton(
+                                                                        onClick = {
+                                                                            viewModel.setVerificationStatus(u.email, null)
+                                                                        },
+                                                                        colors = ButtonDefaults.outlinedButtonColors(
+                                                                            contentColor = MaterialTheme.colorScheme.error
+                                                                        ),
+                                                                        border = BorderStroke(1.dp, MaterialTheme.colorScheme.error),
+                                                                        modifier = Modifier.fillMaxWidth(),
+                                                                        shape = RoundedCornerShape(8.dp),
+                                                                        contentPadding = PaddingValues(vertical = 4.dp)
+                                                                    ) {
+                                                                        Text("ভেরিফিকেশন বাতিল করুন ❌", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                                                    }
                                                                 }
                                                             }
                                                         }
@@ -3921,8 +4002,11 @@ fun parseVerifiedColor(colorStr: String?): Color {
         "white" -> Color.White
         else -> {
             try {
-                if (colorStr.startsWith("#")) {
-                    Color(android.graphics.Color.parseColor(colorStr))
+                val cleaned = colorStr.trim()
+                if (cleaned.startsWith("#")) {
+                    Color(android.graphics.Color.parseColor(cleaned))
+                } else if (cleaned.matches(Regex("[0-9a-fA-F]{6,8}"))) {
+                    Color(android.graphics.Color.parseColor("#$cleaned"))
                 } else {
                     Color(0xFFD4AF37)
                 }
@@ -8122,5 +8206,35 @@ fun CallManagerOverlay(viewModel: EchoChatViewModel) {
             }
             else -> {}
         }
+    }
+}
+
+fun parseColorString(colorStr: String): Color {
+    return try {
+        if (colorStr.startsWith("#")) {
+            Color(android.graphics.Color.parseColor(colorStr))
+        } else {
+            when (colorStr.lowercase().trim()) {
+                "gold" -> Color(0xFFFFB300)
+                "blue" -> Color(0xFF2196F3)
+                "red" -> Color(0xFFE53935)
+                "green" -> Color(0xFF4CAF50)
+                "black" -> Color(0xFF333333)
+                "white" -> Color(0xFFFFFFFF)
+                "purple" -> Color(0xFF9C27B0)
+                "pink" -> Color(0xFFE91E63)
+                "orange" -> Color(0xFFFF9800)
+                "yellow" -> Color(0xFFFFEB3B)
+                else -> {
+                    if (colorStr.matches(Regex("[0-9a-fA-F]{6,8}"))) {
+                        Color(android.graphics.Color.parseColor("#$colorStr"))
+                    } else {
+                        Color.Gray
+                    }
+                }
+            }
+        }
+    } catch (e: Exception) {
+        Color.Gray
     }
 }
