@@ -367,10 +367,14 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
 
     val context = LocalContext.current
     val requiredPermissions = remember {
-        arrayOf(
+        val list = mutableListOf(
             android.Manifest.permission.ACCESS_FINE_LOCATION,
             android.Manifest.permission.ACCESS_COARSE_LOCATION
         )
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU) {
+            list.add(android.Manifest.permission.POST_NOTIFICATIONS)
+        }
+        list.toTypedArray()
     }
 
     var allPermissionsGranted by remember {
