@@ -167,6 +167,34 @@ object LocalStorage {
         getPrefs(context).edit().putString(getHiddenChatsKey(context), json).apply()
     }
 
+    private fun getMutedChatsKey(context: Context): String {
+        val user = getLoggedInUser(context)
+        val suffix = user?.email?.lowercase()?.trim() ?: "default"
+        return "MUTED_CHATS_JSON_$suffix"
+    }
+
+    fun getMutedChats(context: Context): Map<String, Long> {
+        val json = getPrefs(context).getString(getMutedChatsKey(context), null) ?: return emptyMap()
+        return try {
+            val type = Types.newParameterizedType(Map::class.java, String::class.java, Long::class.javaObjectType)
+            moshi.adapter<Map<String, Long>>(type).fromJson(json) ?: emptyMap()
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    fun saveMutedChat(context: Context, email: String, expiryTimestamp: Long?) {
+        val current = getMutedChats(context).toMutableMap()
+        if (expiryTimestamp == null) {
+            current.remove(email)
+        } else {
+            current[email] = expiryTimestamp
+        }
+        val type = Types.newParameterizedType(Map::class.java, String::class.java, Long::class.javaObjectType)
+        val json = moshi.adapter<Map<String, Long>>(type).toJson(current)
+        getPrefs(context).edit().putString(getMutedChatsKey(context), json).apply()
+    }
+
     // Unread message counts map
     fun getUnreadCounts(context: Context): Map<String, Int> {
         val json = getPrefs(context).getString("UNREAD_COUNTS_JSON", null) ?: return emptyMap()
@@ -328,6 +356,28 @@ object LocalStorage {
         val type = Types.newParameterizedType(Map::class.java, String::class.java, String::class.java)
         val json = moshi.adapter<Map<String, String>>(type).toJson(current)
         getPrefs(context).edit().putString("VERIFIED_USERS_JSON", json).apply()
+    }
+
+    fun getPromotedAdmins(context: Context): Map<String, List<String>> {
+        val json = getPrefs(context).getString("PROMOTED_ADMINS_JSON", null) ?: return emptyMap()
+        return try {
+            val type = Types.newParameterizedType(Map::class.java, String::class.java, Types.newParameterizedType(List::class.java, String::class.java))
+            moshi.adapter<Map<String, List<String>>>(type).fromJson(json) ?: emptyMap()
+        } catch (e: Exception) {
+            emptyMap()
+        }
+    }
+
+    fun savePromotedAdmin(context: Context, email: String, permissions: List<String>?) {
+        val current = getPromotedAdmins(context).toMutableMap()
+        if (permissions == null) {
+            current.remove(email)
+        } else {
+            current[email] = permissions
+        }
+        val type = Types.newParameterizedType(Map::class.java, String::class.java, Types.newParameterizedType(List::class.java, String::class.java))
+        val json = moshi.adapter<Map<String, List<String>>>(type).toJson(current)
+        getPrefs(context).edit().putString("PROMOTED_ADMINS_JSON", json).apply()
     }
 
     fun getLocalMessages(context: Context, chatKey: String): List<ChatMessage> {

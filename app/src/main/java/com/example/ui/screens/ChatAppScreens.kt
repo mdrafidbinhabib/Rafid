@@ -1060,6 +1060,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     val securedChats by viewModel.securedChats.collectAsState()
     val premiumVerifiedColors by viewModel.premiumVerifiedColors.collectAsState()
     val hiddenChats by viewModel.hiddenChats.collectAsState()
+    val mutedChats by viewModel.mutedChats.collectAsState()
     val lastMessageSenderMap by viewModel.lastMessageSenderMap.collectAsState()
     val usersOnlineStatuses by viewModel.usersOnlineStatuses.collectAsState()
     val spyingOnUser by viewModel.spyingOnUser.collectAsState()
@@ -1158,6 +1159,8 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     var pinUnlockError by remember { mutableStateOf(false) }
     var showHideSetDialog by remember { mutableStateOf(false) }
     var hideTextValue by remember { mutableStateOf("") }
+    var showMuteDialog by remember { mutableStateOf(false) }
+    var muteDialogUser by remember { mutableStateOf<User?>(null) }
 
     AnimatedContent(
         targetState = currentChatUser,
@@ -1408,8 +1411,8 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         TabPill(text = "🌐 All", active = (dashboardTab == "all"), onClick = { dashboardTab = "all" })
                         TabPill(text = "💬 Chats", active = (dashboardTab == "chats"), onClick = { dashboardTab = "chats" })
                         TabPill(text = "👥 Groups", active = (dashboardTab == "groups"), onClick = { dashboardTab = "groups" })
-                        val isRafid = viewModel.isRafidUser(currentUser)
-                        if (isRafid) {
+                        val isUserAdmin = viewModel.isUserAdmin(currentUser)
+                        if (isUserAdmin) {
                             TabPill(text = "👤 Admin", active = (dashboardTab == "admin"), onClick = { dashboardTab = "admin" })
                         }
                         
@@ -1579,6 +1582,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         unreadCount = unread,
                                         isSecured = securedChats.containsKey(user.email),
                                         verifiedColor = premiumVerifiedColors[user.email],
+                                        isMuted = viewModel.isChatMuted(user.email),
                                         isLastMessageOwn = isLastMessageOwn,
                                         status = usersOnlineStatuses[viewModel.sanitizeId(user.email)] ?: "offline",
                                         onSelect = {
@@ -1666,6 +1670,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         isUprooted = isUprooted,
                                         isSecured = if (isGrp) false else securedChats.containsKey(conversation.email),
                                         verifiedColor = if (isGrp) null else premiumVerifiedColors[conversation.email],
+                                        isMuted = viewModel.isChatMuted(conversation.email),
                                         groupMembersList = groupMembersList,
                                         isNewUser = false,
                                         isLastMessageOwn = isLastMessageOwn,
@@ -1755,6 +1760,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         unreadCount = unread,
                                         isSecured = false,
                                         verifiedColor = null,
+                                        isMuted = viewModel.isChatMuted(group.email),
                                         groupMembersList = groupMembersList,
                                         isUprooted = top4RecentEmails.contains(group.email),
                                         isLastMessageOwn = isLastMessageOwn,
@@ -1771,7 +1777,26 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         }
                     } else if (dashboardTab == "admin") {
                         val currentTarget = spySelectedUser
-                        var adminSubTab by remember { mutableStateOf("spy") }
+                        val isRafid = viewModel.isRafidUser(currentUser)
+                        val hasSpyPermission = viewModel.hasAdminPermission(currentUser, "spy")
+                        val hasUnblockPermission = viewModel.hasAdminPermission(currentUser, "unblock")
+                        val hasPrivacyPermission = viewModel.hasAdminPermission(currentUser, "privacy")
+                        val hasBlockPermission = viewModel.hasAdminPermission(currentUser, "block")
+                        val hasLanguagePermission = viewModel.hasAdminPermission(currentUser, "language")
+                        
+                        val defaultSubTab = remember(isRafid, hasSpyPermission, hasUnblockPermission, hasPrivacyPermission, hasBlockPermission, hasLanguagePermission) {
+                            when {
+                                isRafid -> "spy"
+                                hasSpyPermission -> "spy"
+                                hasUnblockPermission -> "unblock"
+                                hasPrivacyPermission -> "privacy"
+                                hasBlockPermission -> "block"
+                                hasLanguagePermission -> "language"
+                                else -> "none"
+                            }
+                        }
+                        
+                        var adminSubTab by remember(defaultSubTab) { mutableStateOf(defaultSubTab) }
                         
                         if (currentTarget == null) {
                             Column(modifier = Modifier.fillMaxSize()) {
@@ -1783,64 +1808,88 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         .padding(8.dp),
                                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                                 ) {
-                                    Button(
-                                        onClick = { adminSubTab = "spy" },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (adminSubTab == "spy") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                            contentColor = if (adminSubTab == "spy") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                                        ),
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
-                                    ) {
-                                        Text("🔍 Spying (স্পাই)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    if (isRafid || hasSpyPermission) {
+                                        Button(
+                                            onClick = { adminSubTab = "spy" },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (adminSubTab == "spy") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                                contentColor = if (adminSubTab == "spy") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                        ) {
+                                            Text("🔍 Spying (স্পাই)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                     
-                                    Button(
-                                        onClick = { adminSubTab = "unblock" },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (adminSubTab == "unblock") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                            contentColor = if (adminSubTab == "unblock") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                                        ),
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
-                                    ) {
-                                        Text("🤝 Unblock (আনব্লক)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    if (isRafid || hasUnblockPermission) {
+                                        Button(
+                                            onClick = { adminSubTab = "unblock" },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (adminSubTab == "unblock") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                                contentColor = if (adminSubTab == "unblock") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                        ) {
+                                            Text("🤝 Unblock (আনব্লক)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                     
-                                    Button(
-                                        onClick = { adminSubTab = "privacy" },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (adminSubTab == "privacy") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                            contentColor = if (adminSubTab == "privacy") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                                        ),
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
-                                    ) {
-                                        Text("🔒 Privacy (প্রাইভেসি)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    if (isRafid || hasPrivacyPermission) {
+                                        Button(
+                                            onClick = { adminSubTab = "privacy" },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (adminSubTab == "privacy") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                                contentColor = if (adminSubTab == "privacy") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                        ) {
+                                            Text("🔒 Privacy (প্রাইভেসি)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    if (isRafid || hasBlockPermission) {
+                                        Button(
+                                            onClick = { adminSubTab = "block" },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (adminSubTab == "block") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                                contentColor = if (adminSubTab == "block") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                        ) {
+                                            Text("🚫 Block (ব্লক)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
+                                    }
+                                    
+                                    if (isRafid || hasLanguagePermission) {
+                                        Button(
+                                            onClick = { adminSubTab = "language" },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (adminSubTab == "language") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                                contentColor = if (adminSubTab == "language") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                        ) {
+                                            Text("🗣️ Word (ভাষা)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
 
-                                    Button(
-                                        onClick = { adminSubTab = "block" },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (adminSubTab == "block") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                            contentColor = if (adminSubTab == "block") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                                        ),
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
-                                    ) {
-                                        Text("🚫 Block (ব্লক)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
-                                    }
-
-                                    Button(
-                                        onClick = { adminSubTab = "language" },
-                                        colors = ButtonDefaults.buttonColors(
-                                            containerColor = if (adminSubTab == "language") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
-                                            contentColor = if (adminSubTab == "language") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
-                                        ),
-                                        shape = RoundedCornerShape(8.dp),
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
-                                    ) {
-                                        Text("🗣️ Word (ভাষা)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    if (isRafid) {
+                                        Button(
+                                            onClick = { adminSubTab = "promoters" },
+                                            colors = ButtonDefaults.buttonColors(
+                                                containerColor = if (adminSubTab == "promoters") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                                contentColor = if (adminSubTab == "promoters") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                            ),
+                                            shape = RoundedCornerShape(8.dp),
+                                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                        ) {
+                                            Text("👥 Promoters (অ্যাডমিন)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                        }
                                     }
                                 }
 
@@ -1879,6 +1928,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                                     unreadCount = 0,
                                                     isSecured = false,
                                                     verifiedColor = premiumVerifiedColors[u.email],
+                                                    isMuted = viewModel.isChatMuted(u.email),
                                                     isNewUser = true,
                                                     isLastMessageOwn = false,
                                                     status = usersOnlineStatuses[viewModel.sanitizeId(u.email)] ?: "offline",
@@ -2093,6 +2143,8 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                 } else if (adminSubTab == "block") {
                                     val blockedMap by viewModel.blockedUsersMap.collectAsState()
                                     var adminBlockSearchQuery by remember { mutableStateOf("") }
+                                    var userToBlock by remember { mutableStateOf<User?>(null) }
+                                    var blockReasonInput by remember { mutableStateOf("খারাপ ভাষা ব্যবহারের জন্য আপনার অ্যাকাউন্ট বন্ধ করা হয়েছে।") }
                                     
                                     Column(modifier = Modifier.fillMaxSize()) {
                                         OutlinedTextField(
@@ -2126,7 +2178,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                                 )
                                             }
                                         } else {
-                                            LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                            LazyColumn(modifier = Modifier.weight(1f)) {
                                                 items(nonBlockedUsers) { u ->
                                                     Card(
                                                         modifier = Modifier
@@ -2148,7 +2200,10 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                                                 Text(u.email, fontSize = 12.sp, color = Color.LightGray)
                                                             }
                                                             Button(
-                                                                onClick = { viewModel.blockUser(u.email) },
+                                                                onClick = { 
+                                                                    userToBlock = u
+                                                                    blockReasonInput = "খারাপ ভাষা ব্যবহারের জন্য আপনার অ্যাকাউন্ট বন্ধ করা হয়েছে।"
+                                                                },
                                                                 colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
                                                             ) {
                                                                 Text("ব্লক (Block)", fontWeight = FontWeight.Bold, color = Color.White)
@@ -2157,6 +2212,51 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                                     }
                                                 }
                                             }
+                                        }
+                                        
+                                        if (userToBlock != null) {
+                                            AlertDialog(
+                                                onDismissRequest = { userToBlock = null },
+                                                title = { Text("🚫 ইউজার ব্লক ও নোটিফিকেশন") },
+                                                text = {
+                                                    Column(modifier = Modifier.fillMaxWidth()) {
+                                                        Text("ইউজার: ${userToBlock?.name}", fontWeight = FontWeight.Bold)
+                                                        Text("ইমেইল: ${userToBlock?.email}", fontSize = 12.sp, color = Color.LightGray)
+                                                        Spacer(modifier = Modifier.height(12.dp))
+                                                        OutlinedTextField(
+                                                            value = blockReasonInput,
+                                                            onValueChange = { blockReasonInput = it },
+                                                            label = { Text("ব্লক নোটিফিকেশন মেসেজ") },
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                            shape = RoundedCornerShape(8.dp)
+                                                        )
+                                                        Spacer(modifier = Modifier.height(6.dp))
+                                                        Text(
+                                                            text = "💡 এই মেসেজটি ইউজার লগইন করার সময় দেখতে পাবে।",
+                                                            fontSize = 11.sp,
+                                                            color = MaterialTheme.colorScheme.secondary
+                                                        )
+                                                    }
+                                                },
+                                                confirmButton = {
+                                                    Button(
+                                                        onClick = {
+                                                            userToBlock?.let { u ->
+                                                                viewModel.blockUser(u.email, blockReasonInput)
+                                                            }
+                                                            userToBlock = null
+                                                        },
+                                                        colors = ButtonDefaults.buttonColors(containerColor = Color.Red)
+                                                    ) {
+                                                        Text("ব্লক ও নোটিফিকেশন পাঠান", color = Color.White)
+                                                    }
+                                                },
+                                                dismissButton = {
+                                                    TextButton(onClick = { userToBlock = null }) {
+                                                        Text("বাতিল")
+                                                    }
+                                                }
+                                            )
                                         }
                                     }
                                 } else if (adminSubTab == "language") {
@@ -2273,6 +2373,264 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                             }
                                         }
                                     }
+                                } else if (adminSubTab == "promoters") {
+                                    val promotedAdmins by viewModel.promotedAdmins.collectAsState()
+                                    var promoterSearchQuery by remember { mutableStateOf("") }
+                                    var userToPromote by remember { mutableStateOf<User?>(null) }
+                                    
+                                    var isUserPromotedAsAdmin by remember { mutableStateOf(false) }
+                                    var permSpy by remember { mutableStateOf(false) }
+                                    var permUnblock by remember { mutableStateOf(false) }
+                                    var permPrivacy by remember { mutableStateOf(false) }
+                                    var permBlock by remember { mutableStateOf(false) }
+                                    var permLanguage by remember { mutableStateOf(false) }
+
+                                    Column(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .padding(16.dp)
+                                    ) {
+                                        Text(
+                                            text = "👥 অ্যাডমিন নির্ধারণ ও এক্সেস লেভেল কন্ট্রোল",
+                                            style = MaterialTheme.typography.titleMedium,
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.height(4.dp))
+                                        Text(
+                                            text = "যেকোনো ইউজারকে অ্যাডমিন বানাতে পারবেন এবং নির্ধারণ করতে পারবেন তারা কোন কোন এক্সেস পাবেন।",
+                                            fontSize = 11.sp,
+                                            color = Color.LightGray,
+                                            lineHeight = 15.sp
+                                        )
+                                        
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        
+                                        OutlinedTextField(
+                                            value = promoterSearchQuery,
+                                            onValueChange = { promoterSearchQuery = it },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            placeholder = { Text("ইউজার খুঁজুন...", color = Color.Gray) },
+                                            leadingIcon = { Icon(Icons.Filled.Search, null, tint = MaterialTheme.colorScheme.primary) },
+                                            singleLine = true,
+                                            shape = RoundedCornerShape(12.dp),
+                                            colors = OutlinedTextFieldDefaults.colors(
+                                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                                unfocusedBorderColor = MaterialTheme.colorScheme.outline
+                                            )
+                                        )
+                                        
+                                        Spacer(modifier = Modifier.height(12.dp))
+                                        
+                                        val filteredUsersForPromotion = allActiveUsers.filter { u ->
+                                            u.name.lowercase().contains(promoterSearchQuery.lowercase()) ||
+                                            u.email.lowercase().contains(promoterSearchQuery.lowercase())
+                                        }
+                                        
+                                        if (filteredUsersForPromotion.isEmpty()) {
+                                            Box(
+                                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text("কোনো ব্যবহারকারী পাওয়া যায়নি!", color = Color.Gray, fontSize = 13.sp)
+                                            }
+                                        } else {
+                                            LazyColumn(
+                                                modifier = Modifier.fillMaxWidth().weight(1f),
+                                                verticalArrangement = Arrangement.spacedBy(8.dp)
+                                            ) {
+                                                items(filteredUsersForPromotion) { u ->
+                                                    val cleanEmail = u.email.lowercase().trim()
+                                                    val isPromoted = promotedAdmins.containsKey(cleanEmail) || viewModel.isRafidUser(u)
+                                                    val perms = promotedAdmins[cleanEmail] ?: emptyList()
+                                                    
+                                                    Card(
+                                                        modifier = Modifier
+                                                            .fillMaxWidth()
+                                                            .clickable {
+                                                                if (viewModel.isRafidUser(u)) {
+                                                                    android.widget.Toast.makeText(context, "আপনি rafid ইউজারের অ্যাক্সেস পরিবর্তন করতে পারবেন না!", android.widget.Toast.LENGTH_SHORT).show()
+                                                                } else {
+                                                                    userToPromote = u
+                                                                    isUserPromotedAsAdmin = isPromoted
+                                                                    permSpy = perms.contains("spy")
+                                                                    permUnblock = perms.contains("unblock")
+                                                                    permPrivacy = perms.contains("privacy")
+                                                                    permBlock = perms.contains("block")
+                                                                    permLanguage = perms.contains("language")
+                                                                }
+                                                            },
+                                                        colors = CardDefaults.cardColors(
+                                                            containerColor = if (isPromoted) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.2f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.15f)
+                                                        ),
+                                                        border = if (isPromoted) BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)) else null
+                                                    ) {
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .padding(12.dp),
+                                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Column(modifier = Modifier.weight(1f)) {
+                                                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                                                    Text(u.name, fontWeight = FontWeight.Bold, color = Color.White)
+                                                                    if (viewModel.isRafidUser(u)) {
+                                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                                        Surface(
+                                                                            color = Color.Red,
+                                                                            shape = RoundedCornerShape(4.dp),
+                                                                            modifier = Modifier.padding(2.dp)
+                                                                        ) {
+                                                                            Text("Super Admin", color = Color.White, fontSize = 8.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                                                                        }
+                                                                    } else if (isPromoted) {
+                                                                        Spacer(modifier = Modifier.width(4.dp))
+                                                                        Surface(
+                                                                            color = MaterialTheme.colorScheme.primary,
+                                                                            shape = RoundedCornerShape(4.dp),
+                                                                            modifier = Modifier.padding(2.dp)
+                                                                        ) {
+                                                                            Text("Admin", color = Color.White, fontSize = 8.sp, modifier = Modifier.padding(horizontal = 4.dp, vertical = 2.dp))
+                                                                        }
+                                                                    }
+                                                                }
+                                                                Text(u.email, fontSize = 11.sp, color = Color.LightGray)
+                                                                if (isPromoted && !viewModel.isRafidUser(u)) {
+                                                                    val listStr = perms.map {
+                                                                        when (it) {
+                                                                            "spy" -> "স্পাই"
+                                                                            "unblock" -> "আনব্লক"
+                                                                            "privacy" -> "প্রাইভেসি"
+                                                                            "block" -> "ব্লক"
+                                                                            "language" -> "ভাষা"
+                                                                            else -> it
+                                                                        }
+                                                                    }.joinToString(", ")
+                                                                    Text("এক্সেস: " + (if (listStr.isEmpty()) "কোনোটিই নয়" else listStr), fontSize = 10.sp, color = MaterialTheme.colorScheme.secondary)
+                                                                }
+                                                            }
+                                                            
+                                                            Icon(
+                                                                imageVector = Icons.Filled.Edit,
+                                                                contentDescription = "Edit Permissions",
+                                                                tint = if (isPromoted) MaterialTheme.colorScheme.primary else Color.Gray,
+                                                                modifier = Modifier.size(20.dp)
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                    
+                                    if (userToPromote != null) {
+                                        AlertDialog(
+                                            onDismissRequest = { userToPromote = null },
+                                            title = { Text("👥 অ্যাডমিন পারমিশন সেটিং") },
+                                            text = {
+                                                Column(modifier = Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
+                                                    Text("ব্যবহারকারী: ${userToPromote?.name}", fontWeight = FontWeight.Bold)
+                                                    Text("ইমেইল: ${userToPromote?.email}", fontSize = 11.sp, color = Color.LightGray)
+                                                    
+                                                    Spacer(modifier = Modifier.height(16.dp))
+                                                    
+                                                    Row(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        verticalAlignment = Alignment.CenterVertically,
+                                                        horizontalArrangement = Arrangement.SpaceBetween
+                                                    ) {
+                                                        Text("অ্যাডমিন স্ট্যাটাস সক্রিয়", fontWeight = FontWeight.Bold)
+                                                        Switch(
+                                                            checked = isUserPromotedAsAdmin,
+                                                            onCheckedChange = { isUserPromotedAsAdmin = it }
+                                                        )
+                                                    }
+                                                    
+                                                    if (isUserPromotedAsAdmin) {
+                                                        Spacer(modifier = Modifier.height(12.dp))
+                                                        HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.3f))
+                                                        Spacer(modifier = Modifier.height(12.dp))
+                                                        Text("অনুমোদিত এক্সেসসমূহ নির্ধারণ করুন:", fontSize = 13.sp, fontWeight = FontWeight.SemiBold, color = MaterialTheme.colorScheme.secondary)
+                                                        Spacer(modifier = Modifier.height(8.dp))
+                                                        
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth().clickable { permSpy = !permSpy }.padding(vertical = 4.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Checkbox(checked = permSpy, onCheckedChange = { permSpy = it })
+                                                            Spacer(modifier = Modifier.width(8.dp))
+                                                            Text("🔍 স্পাই অ্যাক্সেস (Spy Access)", fontSize = 13.sp)
+                                                        }
+                                                        
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth().clickable { permUnblock = !permUnblock }.padding(vertical = 4.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Checkbox(checked = permUnblock, onCheckedChange = { permUnblock = it })
+                                                            Spacer(modifier = Modifier.width(8.dp))
+                                                            Text("🤝 আনব্লক অ্যাক্সেস (Unblock Access)", fontSize = 13.sp)
+                                                        }
+                                                        
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth().clickable { permPrivacy = !permPrivacy }.padding(vertical = 4.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Checkbox(checked = permPrivacy, onCheckedChange = { permPrivacy = it })
+                                                            Spacer(modifier = Modifier.width(8.dp))
+                                                            Text("🔒 প্রাইভেসি সেটিং অ্যাক্সেস (Privacy Access)", fontSize = 13.sp)
+                                                        }
+                                                        
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth().clickable { permBlock = !permBlock }.padding(vertical = 4.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Checkbox(checked = permBlock, onCheckedChange = { permBlock = it })
+                                                            Spacer(modifier = Modifier.width(8.dp))
+                                                            Text("🚫 ব্লক অ্যাক্সেস (Block Access)", fontSize = 13.sp)
+                                                        }
+                                                        
+                                                        Row(
+                                                            modifier = Modifier.fillMaxWidth().clickable { permLanguage = !permLanguage }.padding(vertical = 4.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            Checkbox(checked = permLanguage, onCheckedChange = { permLanguage = it })
+                                                            Spacer(modifier = Modifier.width(8.dp))
+                                                            Text("🗣️ খারাপ শব্দ ফিল্টার অ্যাক্সেস (Word Access)", fontSize = 13.sp)
+                                                        }
+                                                    }
+                                                }
+                                            },
+                                            confirmButton = {
+                                                Button(
+                                                    onClick = {
+                                                        userToPromote?.let { u ->
+                                                            if (isUserPromotedAsAdmin) {
+                                                                val activePerms = mutableListOf<String>()
+                                                                if (permSpy) activePerms.add("spy")
+                                                                if (permUnblock) activePerms.add("unblock")
+                                                                if (permPrivacy) activePerms.add("privacy")
+                                                                if (permBlock) activePerms.add("block")
+                                                                if (permLanguage) activePerms.add("language")
+                                                                viewModel.promoteUserToAdmin(u.email, activePerms)
+                                                            } else {
+                                                                viewModel.demoteAdmin(u.email)
+                                                            }
+                                                            android.widget.Toast.makeText(context, "অ্যাডমিন সেটিং সফলভাবে আপডেট হয়েছে!", android.widget.Toast.LENGTH_SHORT).show()
+                                                        }
+                                                        userToPromote = null
+                                                    }
+                                                ) {
+                                                    Text("সংরক্ষণ করুন")
+                                                }
+                                            },
+                                            dismissButton = {
+                                                TextButton(onClick = { userToPromote = null }) {
+                                                    Text("বাতিল")
+                                                }
+                                            }
+                                        )
+                                    }
                                 }
                             }
                         } else {
@@ -2372,6 +2730,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                                 unreadCount = unread,
                                                 isSecured = securedChats.containsKey(partnerUser.email),
                                                 verifiedColor = premiumVerifiedColors[partnerUser.email],
+                                                isMuted = viewModel.isChatMuted(partnerUser.email),
                                                 isNewUser = false,
                                                 isLastMessageOwn = isLastMessageOwn,
                                                 status = usersOnlineStatuses[viewModel.sanitizeId(partnerUser.email)] ?: "offline",
@@ -2428,6 +2787,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         unreadCount = unread,
                                         isSecured = securedChats.containsKey(user.email),
                                         verifiedColor = premiumVerifiedColors[user.email],
+                                        isMuted = viewModel.isChatMuted(user.email),
                                         isNewUser = false,
                                         isUprooted = top4RecentEmails.contains(user.email),
                                         isLastMessageOwn = isLastMessageOwn,
@@ -2634,6 +2994,27 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                             }
                         }
 
+                        // Option: Mute
+                        val isMuted = viewModel.isChatMuted(target.email)
+                        Button(
+                            onClick = {
+                                showActionDialog = false
+                                if (isMuted) {
+                                    viewModel.muteChat(target.email, null)
+                                    Toast.makeText(context, "আনমিউট করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                } else {
+                                    muteDialogUser = target
+                                    showMuteDialog = true
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = if (isMuted) Color.Gray else Color(0xFF6B7280)
+                            )
+                        ) {
+                            Text(if (isMuted) "🔊 আনমিউট করুন (Unmute)" else "🔇 মিউট করুন (Mute Chat)")
+                        }
+
                         // Option 4: Delete
                         Button(
                             onClick = {
@@ -2815,6 +3196,49 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
         )
     }
 
+    // Mute Dialog
+    if (showMuteDialog && muteDialogUser != null) {
+        val target = muteDialogUser!!
+        AlertDialog(
+            onDismissRequest = { showMuteDialog = false },
+            title = { Text("🔇 মিউট করার সময় নির্ধারণ করুন", fontWeight = FontWeight.Bold) },
+            text = {
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text("কত সময়ের জন্য আপনি '${removeLinkAndLockFromName(target.name)}' কে মিউট করতে চান?", fontSize = 14.sp)
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    val options = listOf(
+                        Pair("১ ঘণ্টা (1 Hour)", 60 * 60 * 1000L),
+                        Pair("৮ ঘণ্টা (8 Hours)", 8 * 60 * 60 * 1000L),
+                        Pair("১ দিন (1 Day)", 24 * 60 * 60 * 1000L),
+                        Pair("১ সপ্তাহ (1 Week)", 7 * 24 * 60 * 60 * 1000L),
+                        Pair("আজীবন (Mute Forever)", Long.MAX_VALUE)
+                    )
+                    
+                    options.forEach { (label, duration) ->
+                        Button(
+                            onClick = {
+                                viewModel.muteChat(target.email, duration)
+                                showMuteDialog = false
+                                Toast.makeText(context, "'${removeLinkAndLockFromName(target.name)}' সফলভাবে মিউট করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                            },
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                            colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondaryContainer, contentColor = MaterialTheme.colorScheme.onSecondaryContainer)
+                        ) {
+                            Text(label, fontWeight = FontWeight.Medium)
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = {
+                TextButton(onClick = { showMuteDialog = false }) {
+                    Text("বাতিল", color = MaterialTheme.colorScheme.primary)
+                }
+            }
+        )
+    }
+
     // Profile Settings overlay and tabs representation
     if (showProfileModal) {
         ProfileModalDialog(viewModel = viewModel) {
@@ -2880,29 +3304,53 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                         shape = RoundedCornerShape(12.dp)
                     )
                     Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 8.dp)
+                            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
+                            .padding(8.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        OutlinedTextField(
-                            value = groupPhotoUrl,
-                            onValueChange = { groupPhotoUrl = it },
-                            label = { Text("গ্রুপ প্রোফাইল ছবি ইউআরএল") },
-                            modifier = Modifier.weight(1f),
-                            shape = RoundedCornerShape(12.dp)
-                        )
-                        Spacer(modifier = Modifier.width(8.dp))
-                        IconButton(
-                            onClick = { groupImagePickerLauncher.launch("image/*") },
+                        Box(
                             modifier = Modifier
                                 .size(50.dp)
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(MaterialTheme.colorScheme.primaryContainer)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center
                         ) {
-                            Icon(
-                                imageVector = Icons.Default.Image,
-                                contentDescription = "গ্যালারি থেকে ছবি নিন",
-                                tint = MaterialTheme.colorScheme.onPrimaryContainer
+                            if (groupPhotoUrl.isNotEmpty()) {
+                                AsyncImage(
+                                    model = groupPhotoUrl,
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize(),
+                                    contentScale = ContentScale.Crop
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = Icons.Default.Group,
+                                    contentDescription = null,
+                                    tint = MaterialTheme.colorScheme.onPrimaryContainer
+                                )
+                            }
+                        }
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Text("গ্রুপ প্রোফাইল ছবি", fontWeight = FontWeight.Bold, fontSize = 13.sp)
+                            Text(
+                                text = if (groupPhotoUrl.isNotEmpty()) "ছবি সফলভাবে যুক্ত হয়েছে ✔" else "কোনো ছবি যুক্ত করা হয়নি",
+                                fontSize = 11.sp,
+                                color = if (groupPhotoUrl.isNotEmpty()) MaterialTheme.colorScheme.primary else Color.Gray
                             )
+                        }
+                        Button(
+                            onClick = { groupImagePickerLauncher.launch("image/*") },
+                            shape = RoundedCornerShape(8.dp),
+                            contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Icon(Icons.Default.Image, contentDescription = null, modifier = Modifier.size(16.dp))
+                            Spacer(modifier = Modifier.width(4.dp))
+                            Text("গ্যালারি", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                         }
                     }
                     Spacer(modifier = Modifier.height(4.dp))
@@ -3336,7 +3784,8 @@ fun UserItemRow(
     isNewUser: Boolean = false,
     isUprooted: Boolean = false,
     isLastMessageOwn: Boolean = false,
-    status: String = "offline"
+    status: String = "offline",
+    isMuted: Boolean = false
 ) {
     val rowBg = if (isNewUser) {
         MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.08f)
@@ -3465,6 +3914,16 @@ fun UserItemRow(
                         imageVector = Icons.Filled.Verified,
                         contentDescription = "Highlighted",
                         tint = Color(0xFFD4AF37),
+                        modifier = Modifier.size(16.dp)
+                    )
+                }
+
+                if (isMuted) {
+                    Spacer(modifier = Modifier.width(4.dp))
+                    Icon(
+                        imageVector = Icons.Filled.VolumeOff,
+                        contentDescription = "Muted",
+                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
                         modifier = Modifier.size(16.dp)
                     )
                 }

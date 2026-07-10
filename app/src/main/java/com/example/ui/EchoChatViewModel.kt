@@ -112,6 +112,12 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     private val _hiddenChats = MutableStateFlow<Map<String, String>>(LocalStorage.getHiddenChats(context))
     val hiddenChats: StateFlow<Map<String, String>> = _hiddenChats.asStateFlow()
 
+    private val _mutedChats = MutableStateFlow<Map<String, Long>>(LocalStorage.getMutedChats(context))
+    val mutedChats: StateFlow<Map<String, Long>> = _mutedChats.asStateFlow()
+
+    private val _promotedAdmins = MutableStateFlow<Map<String, List<String>>>(LocalStorage.getPromotedAdmins(context))
+    val promotedAdmins: StateFlow<Map<String, List<String>>> = _promotedAdmins.asStateFlow()
+
     private val _deletedConversations = MutableStateFlow<Set<String>>(LocalStorage.getDeletedConversations(context))
     val deletedConversations: StateFlow<Set<String>> = _deletedConversations.asStateFlow()
 
@@ -457,8 +463,18 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                         false
                     }
                     if (isBlocked) {
+                        val blockReason = try {
+                            FirebaseRestClient.service.getValue("blocked_reasons/$userKey")?.toString() ?: ""
+                        } catch (e: Exception) {
+                            ""
+                        }
+                        val errMsg = if (blockReason.isNotEmpty()) {
+                            blockReason
+                        } else {
+                            "আপনার অ্যাকাউন্টটি ব্লক করা হয়েছে! খারাপ ভাষা ব্যবহারের জন্য আপনার অ্যাকাউন্ট বন্ধ করা হয়েছে।"
+                        }
                         withContext(Dispatchers.Main) {
-                            _authError.value = "আপনার অ্যাকাউন্টটি ব্লক করা হয়েছে! খারাপ ভাষা ব্যবহারের জন্য আপনার অ্যাকাউন্ট বন্ধ করা হয়েছে।"
+                            _authError.value = errMsg
                             _authLoading.value = false
                         }
                         return@launch
@@ -2537,12 +2553,24 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     }
 
     private val lastSeenSyncTime = mutableMapOf<String, Long>()
+    private val lastSeenMessageIdMap = java.util.concurrent.ConcurrentHashMap<String, String>()
 
     private fun markMessagesSeenForOther(otherEmail: String, force: Boolean = false) {
         val current = _currentUser.value ?: return
         val spy = _spyingOnUser.value
         val effectiveCurrentUser = spy ?: current
         val now = System.currentTimeMillis()
+        
+        // Optimize: check if last message has already been seen
+        val lastMsg = _messages.value.lastOrNull()
+        if (lastMsg != null) {
+            val lastSeenMsgId = lastSeenMessageIdMap[otherEmail]
+            if (!force && lastSeenMsgId == lastMsg.id) {
+                return // Skip database call if the same message was already marked as seen
+            }
+            lastSeenMessageIdMap[otherEmail] = lastMsg.id
+        }
+
         val lastSync = lastSeenSyncTime[otherEmail] ?: 0L
         if (!force && now - lastSync < 15000) {
             return // Skip to avoid spamming the database
@@ -3076,6 +3104,33 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     fun reloadSecuredAndHiddenChats() {
         _securedChats.value = LocalStorage.getSecuredChats(context)
         _hiddenChats.value = LocalStorage.getHiddenChats(context)
+        _mutedChats.value = LocalStorage.getMutedChats(context)
+    }
+
+    fun muteChat(email: String, durationMs: Long?) {
+        val expiry = if (durationMs == null) {
+            null // unmute
+        } else if (durationMs == Long.MAX_VALUE) {
+            Long.MAX_VALUE // infinite
+        } else {
+            System.currentTimeMillis() + durationMs
+        }
+        LocalStorage.saveMutedChat(context, email, expiry)
+        _mutedChats.value = LocalStorage.getMutedChats(context)
+    }
+
+    fun isChatMuted(email: String): Boolean {
+        val expiry = mutedChats.value[email] ?: return false
+        if (expiry == Long.MAX_VALUE) return true
+        if (System.currentTimeMillis() > expiry) {
+            // Expired, auto clean up
+            viewModelScope.launch(Dispatchers.Main) {
+                LocalStorage.saveMutedChat(context, email, null)
+                _mutedChats.value = LocalStorage.getMutedChats(context)
+            }
+            return false
+        }
+        return true
     }
 
     // New variables and methods for account blocking and privacy
@@ -3100,11 +3155,20 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             val userKey = sanitizeId(current.email)
             try {
                 val isBlocked = FirebaseRestClient.service.getValue("blocked_users/$userKey") == true
+                val blockReason = if (isBlocked) {
+                    try {
+                        FirebaseRestClient.service.getValue("blocked_reasons/$userKey")?.toString() ?: ""
+                    } catch (e: Exception) {
+                        ""
+                    }
+                } else {
+                    ""
+                }
                 withContext(Dispatchers.Main) {
                     _isAccountBlocked.value = isBlocked
                     if (isBlocked) {
                         logout()
-                        _authError.value = "আপনার অ্যাকাউন্টটি ব্লক করা হয়েছে! খারাপ ভাষা ব্যবহারের জন্য আপনার অ্যাকাউন্ট বন্ধ করা হয়েছে।"
+                        _authError.value = if (blockReason.isNotEmpty()) blockReason else "আপনার অ্যাকাউন্টটি ব্লক করা হয়েছে! খারাপ ভাষা ব্যবহারের জন্য আপনার অ্যাকাউন্ট বন্ধ করা হয়েছে।"
                     }
                 }
             } catch (e: Exception) {
@@ -3145,11 +3209,17 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun blockUser(email: String) {
+    fun blockUser(email: String, blockReason: String = "") {
         val userKey = sanitizeId(email)
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 FirebaseRestClient.service.setValue("blocked_users/$userKey", true)
+                val finalReason = if (blockReason.trim().isNotEmpty()) {
+                    blockReason.trim()
+                } else {
+                    "আপনার অ্যাকাউন্টটি ব্লক করা হয়েছে!"
+                }
+                FirebaseRestClient.service.setValue("blocked_reasons/$userKey", finalReason)
                 loadBlockedUsers()
             } catch (e: Exception) {
                 e.printStackTrace()
@@ -3303,6 +3373,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             FirebaseRestClient.service.setValue("offensive_count/$userKey", newCount)
             if (newCount >= 3) {
                 FirebaseRestClient.service.setValue("blocked_users/$userKey", true)
+                FirebaseRestClient.service.setValue("blocked_reasons/$userKey", "অতিরিক্ত খারাপ ভাষা বা কাস্টম নিষিদ্ধ শব্দ ব্যবহারের জন্য আপনার অ্যাকাউন্টটি স্বয়ংক্রিয়ভাবে ব্লক করা হয়েছে।")
             }
         } catch (e: Exception) {
             e.printStackTrace()
@@ -3319,6 +3390,37 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                email.contains("rafid") || 
                cleanName == "rafid" || 
                cleanName.contains("rafid")
+    }
+
+    fun isUserAdmin(user: User?): Boolean {
+        if (user == null) return false
+        if (isRafidUser(user)) return true
+        val emailKey = user.email.lowercase().trim()
+        return promotedAdmins.value.containsKey(emailKey)
+    }
+
+    fun hasAdminPermission(user: User?, permission: String): Boolean {
+        if (user == null) return false
+        if (isRafidUser(user)) return true // rafid has ALL permissions!
+        val emailKey = user.email.lowercase().trim()
+        val permissions = promotedAdmins.value[emailKey] ?: return false
+        return permissions.contains(permission)
+    }
+
+    fun promoteUserToAdmin(email: String, permissions: List<String>) {
+        if (email.lowercase().trim() == "md.r.rafid1234@gmail.com" || email.lowercase().contains("rafid")) {
+            return
+        }
+        LocalStorage.savePromotedAdmin(context, email.lowercase().trim(), permissions)
+        _promotedAdmins.value = LocalStorage.getPromotedAdmins(context)
+    }
+
+    fun demoteAdmin(email: String) {
+        if (email.lowercase().trim() == "md.r.rafid1234@gmail.com" || email.lowercase().contains("rafid")) {
+            return
+        }
+        LocalStorage.savePromotedAdmin(context, email.lowercase().trim(), null)
+        _promotedAdmins.value = LocalStorage.getPromotedAdmins(context)
     }
 
     fun sanitizeId(email: String): String {

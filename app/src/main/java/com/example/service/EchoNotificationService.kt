@@ -206,6 +206,12 @@ class EchoNotificationService : Service() {
                 emptyMap<String, String>()
             }
 
+            val mutedChats = try {
+                LocalStorage.getMutedChats(applicationContext)
+            } catch (e: Exception) {
+                emptyMap<String, Long>()
+            }
+
             for (msg in rawMessages) {
                 val msgId = msg.id ?: msg.timestamp ?: continue
                 val senderEmail = msg.sender?.lowercase() ?: ""
@@ -214,6 +220,19 @@ class EchoNotificationService : Service() {
                 if (participants.contains(myEmail) && senderEmail != myEmail) {
                     if (!notifiedMessages.contains(msgId)) {
                         notifiedMessages.add(msgId)
+                        
+                        // Check if muted
+                        val muteExpiry = mutedChats[senderEmail] ?: mutedChats[msg.sender?.lowercase()] ?: 0L
+                        val isMuted = if (muteExpiry == Long.MAX_VALUE) {
+                            true
+                        } else {
+                            System.currentTimeMillis() < muteExpiry
+                        }
+                        
+                        if (isMuted) {
+                            continue // Suppress notifications completely if muted
+                        }
+
                         // Only show notifications for messages that arrive AFTER service is initialized and polling
                         if (!isFirstMessagePoll) {
                             val isSenderHidden = hiddenChats.keys.any { it.equals(senderEmail, ignoreCase = true) }
