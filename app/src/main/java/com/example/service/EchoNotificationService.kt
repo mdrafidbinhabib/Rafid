@@ -145,6 +145,46 @@ class EchoNotificationService : Service() {
         }
     }
 
+    private val userRegistry = mutableMapOf<String, String>() // email -> name
+    private var lastUserRegistryFetch = 0L
+
+    private suspend fun refreshUserRegistry() {
+        if (System.currentTimeMillis() - lastUserRegistryFetch > 300000) { // every 5 minutes
+            try {
+                val userRes = RetrofitClient.echoChatApi.getUsers(scriptUrl)
+                if (userRes != null && userRes.status == "success" && userRes.users != null) {
+                    userRes.users.forEach { u ->
+                        userRegistry[u.email.lowercase().trim()] = u.name
+                    }
+                    lastUserRegistryFetch = System.currentTimeMillis()
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun isMuted(senderEmail: String, mutedChats: Map<String, Long>): Boolean {
+        val cleanEmail = senderEmail.lowercase().trim()
+        val muteExpiry = mutedChats[cleanEmail] ?: 0L
+        return if (muteExpiry == Long.MAX_VALUE) {
+            true
+        } else {
+            System.currentTimeMillis() < muteExpiry
+        }
+    }
+
+    private fun getUserNameFromRegistry(email: String): String {
+        val cleanEmail = email.lowercase().trim()
+        return userRegistry[cleanEmail] ?: cleanEmail.split("@")[0]
+    }
+
+    private fun getGroupName(chatKey: String, remoteGroups: Map<*, *>?): String {
+        if (remoteGroups == null) return "গ্রুপ চ্যাট"
+        val gMap = remoteGroups[chatKey] as? Map<*, *> ?: remoteGroups[chatKey.removeSuffix(".json")] as? Map<*, *>
+        return gMap?.get("name") as? String ?: "গ্রুপ চ্যাট"
+    }
+
     private fun startPollingLoop() {
         serviceScope.launch {
             while (isActive) {
@@ -157,7 +197,7 @@ class EchoNotificationService : Service() {
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                delay(3000) // Poll every 3 seconds for fast alerts
+                delay(1500) // Poll every 1.5 seconds for instant alerts
             }
         }
     }
@@ -199,71 +239,171 @@ class EchoNotificationService : Service() {
     }
 
     private suspend fun pollNewMessages(user: User) {
-        val myEmail = user.email.lowercase()
-        val rawMessages = try {
-            RetrofitClient.echoChatApi.getMessages(scriptUrl)
+        val myEmail = user.email.lowercase().trim()
+        val mySanitized = sanitizeId(myEmail)
+        
+        // Refresh our user registry of email to names
+        refreshUserRegistry()
+
+        // Fetch overall conversations metadata in a single, fast request
+        val remoteLastActivity = try {
+            FirebaseRestClient.service.getValue("conversations_last_activity") as? Map<*, *>
         } catch (e: Exception) {
             null
         }
 
-        if (rawMessages != null) {
-            val isFirstPoll = isFirstMessagePoll
-            if (isFirstMessagePoll) {
-                isFirstMessagePoll = false
+        val remoteLastSender = try {
+            FirebaseRestClient.service.getValue("conversations_last_sender") as? Map<*, *>
+        } catch (e: Exception) {
+            null
+        }
+
+        val remoteSeen = try {
+            FirebaseRestClient.service.getValue("seen") as? Map<*, *>
+        } catch (e: Exception) {
+            null
+        }
+
+        val remoteGroups = try {
+            SupabaseRestClient.service.getValue("groups") as? Map<*, *>
+        } catch (e: Exception) {
+            null
+        }
+
+        if (remoteLastActivity == null || remoteLastSender == null) {
+            return
+        }
+
+        val isFirstPoll = isFirstMessagePoll
+        if (isFirstMessagePoll) {
+            isFirstMessagePoll = false
+        }
+
+        // Parse user's groups to identify which group conversations they belong to
+        val userGroupKeys = mutableSetOf<String>()
+        remoteGroups?.forEach { (k, v) ->
+            val gId = k?.toString() ?: return@forEach
+            val gMap = v as? Map<*, *> ?: return@forEach
+            val membersRaw = gMap["members"] as? String ?: ""
+            val createdBy = gMap["createdBy"] as? String ?: ""
+            val membersList = membersRaw.split(",").map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+            if (membersList.contains(myEmail) || createdBy.lowercase() == myEmail) {
+                userGroupKeys.add(sanitizeId(gId))
+            }
+        }
+
+        val hiddenChats = try {
+            LocalStorage.getHiddenChats(applicationContext)
+        } catch (e: Exception) {
+            emptyMap<String, String>()
+        }
+
+        val mutedChats = try {
+            LocalStorage.getMutedChats(applicationContext)
+        } catch (e: Exception) {
+            emptyMap<String, Long>()
+        }
+
+        val blockedUsers = try {
+            LocalStorage.getBlockedUsersByUser(applicationContext)
+        } catch (e: Exception) {
+            emptySet<String>()
+        }
+
+        // Loop through all active conversations from the server
+        remoteLastActivity.forEach { (key, value) ->
+            val chatKey = key?.toString() ?: return@forEach
+            val lastActivity = (value as? Number)?.toLong() ?: 0L
+            val lastSender = remoteLastSender[chatKey]?.toString() ?: ""
+
+            if (lastActivity <= 0 || lastSender.isEmpty() || lastSender.lowercase().trim() == myEmail) {
+                return@forEach
             }
 
-            val hiddenChats = try {
-                LocalStorage.getHiddenChats(applicationContext)
-            } catch (e: Exception) {
-                emptyMap<String, String>()
+            val lastSenderClean = lastSender.lowercase().trim()
+            if (blockedUsers.contains(lastSenderClean)) {
+                return@forEach
             }
 
-            val mutedChats = try {
-                LocalStorage.getMutedChats(applicationContext)
-            } catch (e: Exception) {
-                emptyMap<String, Long>()
+            // Determine if the user is a participant of this conversation
+            var isParticipant = false
+            var isGroup = false
+            if (chatKey.contains("__")) {
+                val parts = chatKey.split("__")
+                if (parts.size == 2 && (parts[0] == mySanitized || parts[1] == mySanitized)) {
+                    isParticipant = true
+                }
+            } else if (userGroupKeys.contains(chatKey)) {
+                isParticipant = true
+                isGroup = true
             }
 
-            val blockedUsers = try {
-                LocalStorage.getBlockedUsersByUser(applicationContext)
-            } catch (e: Exception) {
-                emptySet<String>()
+            if (!isParticipant) {
+                return@forEach
             }
 
-            for (msg in rawMessages) {
-                val msgId = msg.id ?: msg.timestamp ?: continue
-                val senderEmail = msg.sender?.lowercase() ?: ""
-                val participants = msg.getParticipantsList().map { it.lowercase() }
+            // Get seen read-receipt for this chat for the user
+            val mySeenObj = (remoteSeen?.get(chatKey) as? Map<*, *>)?.get(mySanitized) as? Map<*, *>
+            val mySeenTs = (mySeenObj?.get("ts") as? Number)?.toLong() ?: 0L
 
-                if (participants.contains(myEmail) && senderEmail != myEmail && !blockedUsers.contains(senderEmail)) {
-                    if (!notifiedMessages.contains(msgId)) {
-                        notifiedMessages.add(msgId)
-                        LocalStorage.addNotifiedMessageId(applicationContext, msgId)
-                        
-                        // If it's the very first poll ever (after installation / clean cache),
-                        // we just record the messages to avoid a notification flood.
-                        // Otherwise, we notify!
-                        if (!isFirstPoll) {
-                            // Check if muted
-                            val muteExpiry = mutedChats[senderEmail] ?: mutedChats[msg.sender?.lowercase()] ?: 0L
-                            val isMuted = if (muteExpiry == Long.MAX_VALUE) {
-                                true
-                            } else {
-                                System.currentTimeMillis() < muteExpiry
+            // If the last activity is greater than what we've seen, it's a new unread message
+            if (lastActivity > mySeenTs) {
+                val uniqueNotificationKey = "${chatKey}_${lastActivity}"
+                
+                if (!notifiedMessages.contains(uniqueNotificationKey)) {
+                    // Mark as notified so we don't trigger again
+                    notifiedMessages.add(uniqueNotificationKey)
+                    LocalStorage.addNotifiedMessageId(applicationContext, uniqueNotificationKey)
+
+                    val ageMs = Math.abs(System.currentTimeMillis() - lastActivity)
+                    
+                    // Only display notification if this is NOT the very first poll,
+                    // AND the message is relatively new (sent within the last 10 minutes)
+                    if (!isFirstPoll && ageMs < 600000) {
+                        // Check if muted
+                        val isChatMuted = isMuted(lastSender, mutedChats)
+                        if (isChatMuted) {
+                            return@forEach
+                        }
+
+                        // Fetch the actual latest message content from Supabase
+                        val messagesResult = try {
+                            SupabaseRestClient.service.getValue("messages/$chatKey") as? Map<*, *>
+                        } catch (e: Exception) {
+                            null
+                        }
+
+                        var senderName = "নতুন বার্তা"
+                        var messageText = "নিউ এসএমএস"
+
+                        if (messagesResult != null) {
+                            var newestMsg: Map<*, *>? = null
+                            var newestTs = 0L
+                            messagesResult.forEach { (_, v) ->
+                                val mData = v as? Map<*, *> ?: return@forEach
+                                val ts = (mData["timestamp"] as? Number)?.toLong() ?: 0L
+                                if (ts > newestTs) {
+                                    newestTs = ts
+                                    newestMsg = mData
+                                }
                             }
-                            
-                            if (isMuted) {
-                                continue // Suppress notifications completely if muted
-                            }
 
-                            val isSenderHidden = hiddenChats.keys.any { it.equals(senderEmail, ignoreCase = true) }
-                            if (isSenderHidden) {
-                                showChatNotification("নিউ এসএমএস", "নিউ এসএমএস", isHidden = true)
-                            } else {
-                                val senderName = msg.user ?: senderEmail.split("@")[0]
-                                showChatNotification(senderName, msg.message ?: "", isHidden = false)
+                            if (newestMsg != null) {
+                                messageText = newestMsg!!["text"] as? String ?: "নিউ এসএমএস"
+                                val senderEmail = newestMsg!!["sender"] as? String ?: ""
+                                
+                                senderName = if (isGroup) {
+                                    val gName = getGroupName(chatKey, remoteGroups)
+                                    val sName = getUserNameFromRegistry(senderEmail)
+                                    "$gName: $sName"
+                                } else {
+                                    getUserNameFromRegistry(senderEmail)
+                                }
                             }
                         }
+
+                        val isSenderHidden = hiddenChats.keys.any { sanitizeId(it).equals(sanitizeId(lastSender), ignoreCase = true) }
+                        showChatNotification(senderName, messageText, isHidden = isSenderHidden)
                     }
                 }
             }

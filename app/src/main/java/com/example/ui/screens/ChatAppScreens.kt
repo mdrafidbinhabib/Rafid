@@ -713,6 +713,16 @@ fun AuthScreen(viewModel: EchoChatViewModel) {
                             onClick = {
                                 viewModel.login(email, password) {
                                     Toast.makeText(context, "লগইন সফল হয়েছে!", Toast.LENGTH_SHORT).show()
+                                    try {
+                                        val serviceIntent = android.content.Intent(context, com.example.service.EchoNotificationService::class.java)
+                                        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+                                            context.startForegroundService(serviceIntent)
+                                        } else {
+                                            context.startService(serviceIntent)
+                                        }
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    }
                                 }
                             },
                             modifier = Modifier.fillMaxWidth(),
