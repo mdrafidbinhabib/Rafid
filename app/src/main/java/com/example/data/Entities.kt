@@ -192,6 +192,7 @@ data class AppVersionInfo(
     val versionNumber: String,
     val title: String,
     val link: String,
-    val forceUpdate: Boolean
+    val forceUpdate: Boolean,
+    val messageId: String? = null
 )
 

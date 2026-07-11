@@ -550,83 +550,47 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
 
             val latestVer = latestVersionInfo
             val isUserRafid = viewModel.isRafidUser(currentUser)
-            if (latestVer != null && latestVer.versionNumber != currentAppVersion && !isUserRafid) {
-                if (latestVer.forceUpdate) {
-                    AlertDialog(
-                        onDismissRequest = {},
-                        title = { Text("🚀 নতুন আপডেট উপলব্ধ (${latestVer.versionNumber})") },
-                        text = {
-                            Column {
-                                Text(latestVer.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text("অ্যাপটি ব্যবহার করা চালিয়ে যেতে আপনাকে অবশ্যই নতুন ভার্সনটি ডাউনলোড করতে হবে।")
-                            }
-                        },
-                        confirmButton = {
-                            Button(
-                                onClick = {
-                                    try {
-                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(latestVer.link))
-                                        context.startActivity(intent)
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                    }
-                                    (context as? android.app.Activity)?.finish()
-                                }
-                            ) {
-                                Text("ডাউনলোড করুন ⬇️")
-                            }
-                        },
-                        dismissButton = {
-                            TextButton(
-                                onClick = {
-                                    (context as? android.app.Activity)?.finish()
-                                }
-                            ) {
-                                Text("বন্ধ করুন ❌")
-                            }
+            if (latestVer != null && latestVer.versionNumber != currentAppVersion && !isUserRafid && latestVer.versionNumber != userSkippedVersion) {
+                AlertDialog(
+                    onDismissRequest = {
+                        viewModel.setSkippedVersion(latestVer.versionNumber)
+                        userSkippedVersion = latestVer.versionNumber
+                    },
+                    title = { Text("🚀 নতুন আপডেট উপলব্ধ (${latestVer.versionNumber})") },
+                    text = {
+                        Column {
+                            Text(latestVer.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text("নতুন ভার্সন এসেছে ডাউনলোড করেন।")
                         }
-                    )
-                } else if (latestVer.versionNumber != userSkippedVersion) {
-                    AlertDialog(
-                        onDismissRequest = {
-                            viewModel.setSkippedVersion(latestVer.versionNumber)
-                            userSkippedVersion = latestVer.versionNumber
-                        },
-                        title = { Text("🚀 নতুন আপডেট উপলব্ধ (${latestVer.versionNumber})") },
-                        text = {
-                            Column {
-                                Text(latestVer.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text("আপনি কি এই সংস্করণটি ডাউনলোড করতে চান? চাইলে স্কিপ করতে পারেন।")
-                            }
-                        },
-                        confirmButton = {
-                            Button(
-                                onClick = {
-                                    try {
-                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(latestVer.link))
-                                        context.startActivity(intent)
-                                    } catch (e: Exception) {
-                                        e.printStackTrace()
-                                    }
+                    },
+                    confirmButton = {
+                        Button(
+                            onClick = {
+                                viewModel.setSkippedVersion(latestVer.versionNumber)
+                                userSkippedVersion = latestVer.versionNumber
+                                try {
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(latestVer.link))
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
                                 }
-                            ) {
-                                Text("ডাউনলোড করুন")
                             }
-                        },
-                        dismissButton = {
-                            TextButton(
-                                onClick = {
-                                    viewModel.setSkippedVersion(latestVer.versionNumber)
-                                    userSkippedVersion = latestVer.versionNumber
-                                }
-                            ) {
-                                Text("স্কিপ করুন")
-                            }
+                        ) {
+                            Text("ডাউনলোড")
                         }
-                    )
-                }
+                    },
+                    dismissButton = {
+                        TextButton(
+                            onClick = {
+                                viewModel.setSkippedVersion(latestVer.versionNumber)
+                                userSkippedVersion = latestVer.versionNumber
+                            }
+                        ) {
+                            Text("স্কিপ")
+                        }
+                    }
+                )
             }
 
             Box(
@@ -8649,7 +8613,8 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
     var versionNumber by remember { mutableStateOf("") }
     var title by remember { mutableStateOf("") }
     var link by remember { mutableStateOf("") }
-    var forceUpdate by remember { mutableStateOf(false) } // Default to false (No), true is Yes
+    val forceUpdate = false
+    var editingVersion by remember { mutableStateOf<AppVersionInfo?>(null) }
 
     val versions by viewModel.versions.collectAsState()
     var isSending by remember { mutableStateOf(false) }
@@ -8670,7 +8635,7 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 Text(
-                    text = "🚀 নতুন অ্যাপ সংস্করণ প্রকাশ করুন",
+                    text = if (editingVersion != null) "✏️ অ্যাপ সংস্করণ সম্পাদনা করুন" else "🚀 নতুন অ্যাপ সংস্করণ প্রকাশ করুন",
                     style = MaterialTheme.typography.titleMedium,
                     fontWeight = FontWeight.Bold,
                     color = MaterialTheme.colorScheme.primary
@@ -8706,73 +8671,88 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
                     shape = RoundedCornerShape(12.dp)
                 )
 
-                // Yes/No Force Update selection with pills
-                Text("বাধ্যতামূলক ডাউনলোড করতে হবে? (Force Update)", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Spacer(modifier = Modifier.height(4.dp))
+
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (forceUpdate) MaterialTheme.colorScheme.primary else Color.DarkGray.copy(alpha = 0.5f))
-                            .clickable { forceUpdate = true }
-                            .padding(vertical = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("হ্যাঁ (Yes)", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(if (!forceUpdate) MaterialTheme.colorScheme.primary else Color.DarkGray.copy(alpha = 0.5f))
-                            .clickable { forceUpdate = false }
-                            .padding(vertical = 12.dp),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text("না (No)", color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-                }
-
-                Spacer(modifier = Modifier.height(8.dp))
-
-                Button(
-                    onClick = {
-                        if (versionNumber.isEmpty() || title.isEmpty() || link.isEmpty()) {
-                            Toast.makeText(context, "অনুগ্রহ করে সবগুলো ঘর পূরণ করুন", Toast.LENGTH_SHORT).show()
-                            return@Button
-                        }
-                        isSending = true
-                        viewModel.sendVersionUpdateToSheet(
-                            versionNumber = versionNumber.trim(),
-                            title = title.trim(),
-                            link = link.trim(),
-                            forceUpdate = forceUpdate,
-                            onSuccess = {
-                                isSending = false
-                                Toast.makeText(context, "ভার্সন সফলভাবে আপডেট করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                    if (editingVersion != null) {
+                        OutlinedButton(
+                            onClick = {
+                                editingVersion = null
                                 versionNumber = ""
                                 title = ""
                                 link = ""
-                                forceUpdate = false
                             },
-                            onError = { err ->
-                                isSending = false
-                                Toast.makeText(context, "ত্রুটি: $err", Toast.LENGTH_LONG).show()
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(12.dp),
+                            enabled = !isSending
+                        ) {
+                            Text("বাতিল ❌", fontWeight = FontWeight.Bold)
+                        }
+                    }
+
+                    Button(
+                        onClick = {
+                            if (versionNumber.isEmpty() || title.isEmpty() || link.isEmpty()) {
+                                Toast.makeText(context, "অনুগ্রহ করে সবগুলো ঘর পূরণ করুন", Toast.LENGTH_SHORT).show()
+                                return@Button
                             }
-                        )
-                    },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(12.dp),
-                    enabled = !isSending
-                ) {
-                    if (isSending) {
-                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
-                    } else {
-                        Text("সেন্ড করুন 🚀", fontWeight = FontWeight.Bold)
+                            isSending = true
+                            val verNum = versionNumber.trim()
+                            val tText = title.trim()
+                            val lLink = link.trim()
+                            val ev = editingVersion
+                            if (ev != null) {
+                                viewModel.editVersion(
+                                    oldMessageId = ev.messageId ?: "",
+                                    versionNumber = verNum,
+                                    title = tText,
+                                    link = lLink,
+                                    forceUpdate = forceUpdate,
+                                    onSuccess = {
+                                        isSending = false
+                                        Toast.makeText(context, "ভার্সন সফলভাবে পরিবর্তন করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                        versionNumber = ""
+                                        title = ""
+                                        link = ""
+                                        editingVersion = null
+                                    },
+                                    onError = { err ->
+                                        isSending = false
+                                        Toast.makeText(context, "ত্রুটি: $err", Toast.LENGTH_LONG).show()
+                                    }
+                                )
+                            } else {
+                                viewModel.sendVersionUpdateToSheet(
+                                    versionNumber = verNum,
+                                    title = tText,
+                                    link = lLink,
+                                    forceUpdate = forceUpdate,
+                                    onSuccess = {
+                                        isSending = false
+                                        Toast.makeText(context, "ভার্সন সফলভাবে আপডেট করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                        versionNumber = ""
+                                        title = ""
+                                        link = ""
+                                    },
+                                    onError = { err ->
+                                        isSending = false
+                                        Toast.makeText(context, "ত্রুটি: $err", Toast.LENGTH_LONG).show()
+                                    }
+                                )
+                            }
+                        },
+                        modifier = Modifier.weight(if (editingVersion != null) 1.2f else 1f),
+                        shape = RoundedCornerShape(12.dp),
+                        enabled = !isSending
+                    ) {
+                        if (isSending) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
+                        } else {
+                            Text(if (editingVersion != null) "পরিবর্তন করুন ✏️" else "সেন্ড করুন 🚀", fontWeight = FontWeight.Bold)
+                        }
                     }
                 }
             }
@@ -8794,18 +8774,10 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
                     modifier = Modifier.fillMaxWidth(),
                     shape = RoundedCornerShape(12.dp),
                     colors = CardDefaults.cardColors(containerColor = Color.DarkGray.copy(alpha = 0.3f)),
-                    border = BorderStroke(1.dp, if (ver.forceUpdate) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else Color.DarkGray)
+                    border = BorderStroke(1.dp, Color.DarkGray)
                 ) {
                     Column(
                         modifier = Modifier
-                            .clickable {
-                                try {
-                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(ver.link))
-                                    context.startActivity(intent)
-                                } catch (e: Exception) {
-                                    Toast.makeText(context, "লিংক ওপেন করতে সমস্যা হয়েছে", Toast.LENGTH_SHORT).show()
-                                }
-                            }
                             .padding(16.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp)
                     ) {
@@ -8820,18 +8792,52 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
                                 color = MaterialTheme.colorScheme.primary,
                                 fontSize = 15.sp
                             )
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (ver.forceUpdate) Color.Red.copy(alpha = 0.2f) else Color.Green.copy(alpha = 0.2f))
-                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.CenterVertically
                             ) {
-                                Text(
-                                    text = if (ver.forceUpdate) "বাধ্যতামূলক" else "ঐচ্ছিক",
-                                    color = if (ver.forceUpdate) Color.Red else Color.Green,
-                                    fontSize = 10.sp,
-                                    fontWeight = FontWeight.Bold
-                                )
+                                IconButton(
+                                    onClick = {
+                                        editingVersion = ver
+                                        versionNumber = ver.versionNumber
+                                        title = ver.title
+                                        link = ver.link
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = "সম্পাদনা",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                                IconButton(
+                                    onClick = {
+                                        ver.messageId?.let { msgId ->
+                                            isSending = true
+                                            viewModel.deleteVersion(
+                                                messageId = msgId,
+                                                onSuccess = {
+                                                    isSending = false
+                                                    Toast.makeText(context, "ভার্সন সফলভাবে মুছে ফেলা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                                },
+                                                onError = { err ->
+                                                    isSending = false
+                                                    Toast.makeText(context, "ত্রুটি: $err", Toast.LENGTH_LONG).show()
+                                                }
+                                            )
+                                        }
+                                    },
+                                    modifier = Modifier.size(36.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Delete,
+                                        contentDescription = "মুছে ফেলুন",
+                                        tint = Color.Red,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
                             }
                         }
                         Text(
@@ -8844,7 +8850,15 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
                             text = "লিংক: ${ver.link}",
                             fontSize = 11.sp,
                             color = Color.LightGray,
-                            maxLines = 1
+                            maxLines = 1,
+                            modifier = Modifier.clickable {
+                                try {
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(ver.link))
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "লিংক ওপেন করতে সমস্যা হয়েছে", Toast.LENGTH_SHORT).show()
+                                }
+                            }
                         )
                     }
                 }

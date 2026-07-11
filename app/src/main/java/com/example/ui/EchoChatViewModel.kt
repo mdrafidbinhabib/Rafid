@@ -580,7 +580,6 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
         LocalStorage.clearLoggedInUser(context)
         _currentUser.value = null
-        skippedVersionInSession = ""
         reloadSecuredAndHiddenChats()
         stopSynchronization()
     }
@@ -752,7 +751,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 val versionList = allRaw.filter { msg ->
                     msg.getParticipantsList().contains("SYSTEM_VERSION_UPDATE")
                 }.mapNotNull { msg ->
-                    parseVersionMessage(msg.message)
+                    parseVersionMessage(msg.message, msg.id)
                 }.distinctBy { it.versionNumber }.reversed() // latest first
                 
                 _versions.value = versionList
@@ -1875,7 +1874,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun parseVersionMessage(message: String): AppVersionInfo? {
+    fun parseVersionMessage(message: String, messageId: String? = null): AppVersionInfo? {
         if (!message.startsWith("VERSION_UPDATE: ")) return null
         return try {
             val content = message.substring("VERSION_UPDATE: ".length)
@@ -1885,7 +1884,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     versionNumber = parts[0],
                     title = parts[1],
                     link = parts[2],
-                    forceUpdate = parts[3].toBoolean()
+                    forceUpdate = parts[3].toBoolean(),
+                    messageId = messageId
                 )
             } else null
         } catch (e: Exception) {
@@ -1902,14 +1902,12 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    private var skippedVersionInSession: String = ""
-
     fun getSkippedVersion(): String {
-        return skippedVersionInSession
+        return LocalStorage.getSkippedVersion(context)
     }
 
     fun setSkippedVersion(version: String) {
-        skippedVersionInSession = version
+        LocalStorage.setSkippedVersion(context, version)
     }
 
     fun sendVersionUpdateToSheet(versionNumber: String, title: String, link: String, forceUpdate: Boolean, onSuccess: () -> Unit, onError: (String) -> Unit) {
@@ -1937,6 +1935,73 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             } catch (e: Exception) {
                 kotlinx.coroutines.withContext(Dispatchers.Main) {
                     onError(e.localizedMessage ?: "একটি ত্রুটি ঘটেছে")
+                }
+            }
+        }
+    }
+
+    fun deleteVersion(messageId: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val response = RetrofitClient.echoChatApi.deleteMessage(
+                    url = scriptUrl,
+                    id = messageId,
+                    sender = "admin@echochat.com"
+                )
+                if (response.status == "success") {
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        onSuccess()
+                        loadAllConversationsAndUsers() // Refresh list
+                    }
+                } else {
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        onError(response.message ?: "মুছে ফেলতে সমস্যা হয়েছে")
+                    }
+                }
+            } catch (e: Exception) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onError(e.localizedMessage ?: "মুছে ফেলতে সমস্যা হয়েছে")
+                }
+            }
+        }
+    }
+
+    fun editVersion(oldMessageId: String, versionNumber: String, title: String, link: String, forceUpdate: Boolean, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val deleteResponse = RetrofitClient.echoChatApi.deleteMessage(
+                    url = scriptUrl,
+                    id = oldMessageId,
+                    sender = "admin@echochat.com"
+                )
+                if (deleteResponse.status == "success") {
+                    val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+                    val messageText = "VERSION_UPDATE: $versionNumber|$title|$link|$forceUpdate"
+                    val sendResponse = RetrofitClient.echoChatApi.sendMessage(
+                        url = scriptUrl,
+                        message = messageText,
+                        timestamp = timestamp,
+                        username = "admin@echochat.com",
+                        participantsJson = org.json.JSONArray(listOf("SYSTEM_VERSION_UPDATE")).toString()
+                    )
+                    if (sendResponse.status == "success") {
+                        kotlinx.coroutines.withContext(Dispatchers.Main) {
+                            onSuccess()
+                            loadAllConversationsAndUsers() // Refresh list
+                        }
+                    } else {
+                        kotlinx.coroutines.withContext(Dispatchers.Main) {
+                            onError(sendResponse.message ?: "আপডেট করতে সমস্যা হয়েছে")
+                        }
+                    }
+                } else {
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        onError(deleteResponse.message ?: "পুরাতন ভার্সন মুছতে সমস্যা হয়েছে")
+                    }
+                }
+            } catch (e: Exception) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onError(e.localizedMessage ?: "আপডেট করতে সমস্যা হয়েছে")
                 }
             }
         }
