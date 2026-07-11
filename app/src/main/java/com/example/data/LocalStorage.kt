@@ -36,6 +36,10 @@ object LocalStorage {
         return getPrefs(context).getString("ACCESS_KEY", null)
     }
 
+    fun getLoginTime(context: Context): Long {
+        return getPrefs(context).getLong("ECHO_LOGIN_TIME", 0L)
+    }
+
     fun clearLoggedInUser(context: Context) {
         getPrefs(context).edit()
             .remove("LOGGED_IN_USER_JSON")

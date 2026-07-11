@@ -7,6 +7,9 @@ import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.draggable
+import androidx.compose.foundation.gestures.rememberDraggableState
+import androidx.compose.foundation.gestures.Orientation
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.*
 import androidx.compose.foundation.shape.CircleShape
@@ -168,6 +171,33 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
         )
     }
 
+    val isBatteryOptimized = remember {
+        mutableStateOf(
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                val pm = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+                pm.isIgnoringBatteryOptimizations(context.packageName).not()
+            } else {
+                false
+            }
+        )
+    }
+
+    var skipBatteryOptimizations by remember { mutableStateOf(false) }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                val pm = context.getSystemService(Context.POWER_SERVICE) as android.os.PowerManager
+                isBatteryOptimized.value = pm.isIgnoringBatteryOptimizations(context.packageName).not()
+            } else {
+                isBatteryOptimized.value = false
+            }
+            kotlinx.coroutines.delay(1000)
+        }
+    }
+
+    val isBypassedOrSkipped = !isBatteryOptimized.value || skipBatteryOptimizations
+
     val launcher = rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
     ) { results ->
@@ -183,14 +213,13 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
 
         if (locationOk && postNotificationOk) {
             permissionsGrantedState = true
-            onAllGranted()
         } else {
             Toast.makeText(context, "অ্যাপটি ব্যবহারের জন্য লোকেশন ও নোটিফিকেশন পারমিশন আবশ্যক!", Toast.LENGTH_LONG).show()
         }
     }
 
-    LaunchedEffect(permissionsGrantedState) {
-        if (permissionsGrantedState) {
+    LaunchedEffect(permissionsGrantedState, isBypassedOrSkipped) {
+        if (permissionsGrantedState && isBypassedOrSkipped) {
             try {
                 val serviceIntent = android.content.Intent(context, com.example.service.EchoNotificationService::class.java)
                 if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
@@ -205,7 +234,7 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
         }
     }
 
-    if (!permissionsGrantedState) {
+    if (!permissionsGrantedState || !isBypassedOrSkipped) {
         Box(
             modifier = Modifier
                 .fillMaxSize()
@@ -240,74 +269,149 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.spacedBy(16.dp)
                 ) {
-                    Box(
-                        modifier = Modifier
-                            .size(60.dp)
-                            .background(Color(0xFFFF5722).copy(alpha = 0.15f), CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Icon(
-                            imageVector = Icons.Default.Lock,
-                            contentDescription = null,
-                            tint = Color(0xFFFF5722),
-                            modifier = Modifier.size(28.dp)
-                        )
-                    }
+                    if (!permissionsGrantedState) {
+                        Box(
+                            modifier = Modifier
+                                .size(60.dp)
+                                .background(Color(0xFFFF5722).copy(alpha = 0.15f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Lock,
+                                contentDescription = null,
+                                tint = Color(0xFFFF5722),
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
 
-                    Text(
-                        text = "পারমিশন প্রয়োজন",
-                        fontSize = 22.sp,
-                        fontWeight = FontWeight.Bold,
-                        color = Color.White,
-                        textAlign = TextAlign.Center
-                    )
-
-                    Text(
-                        text = "অ্যাপটি ব্যবহার করতে নিচের পারমিশনগুলো দেওয়া আবশ্যক। পারমিশন না দিলে অ্যাপে প্রবেশ করা যাবে না।",
-                        fontSize = 13.sp,
-                        color = Color.White.copy(alpha = 0.7f),
-                        textAlign = TextAlign.Center,
-                        lineHeight = 18.sp
-                    )
-
-                    Divider(color = Color.White.copy(alpha = 0.1f))
-
-                    // List of required permissions with nice UI
-                    PermissionItemRow(
-                        icon = Icons.Default.LocationOn,
-                        title = "লোকেশন পারমিশন (Location)",
-                        desc = "আপনার অবস্থান নির্ভুলভাবে যাচাই ও শেয়ার করতে লোকেশন প্রয়োজন।"
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    PermissionItemRow(
-                        icon = Icons.Default.Notifications,
-                        title = "নোটিফিকেশন পারমিশন (Notifications)",
-                        desc = "রিয়েল-টাইম এসএমএস এবং কল নোটিফিকেশন পেতে নোটিফিকেশন পারমিশন আবশ্যক।"
-                    )
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Button(
-                        onClick = {
-                            launcher.launch(permissions)
-                        },
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(52.dp)
-                            .testTag("grant_permissions_button"),
-                        shape = RoundedCornerShape(12.dp),
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Color(0xFF10B981),
-                            contentColor = Color.White
-                        )
-                    ) {
                         Text(
-                            text = "✅ লোকেশন ও নোটিফিকেশন পারমিশন দিন",
-                            fontSize = 15.sp,
-                            fontWeight = FontWeight.Bold
+                            text = "পারমিশন প্রয়োজন",
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            textAlign = TextAlign.Center
                         )
+
+                        Text(
+                            text = "অ্যাপটি ব্যবহার করতে নিচের পারমিশনগুলো দেওয়া আবশ্যক। পারমিশন না দিলে অ্যাপে প্রবেশ করা যাবে না।",
+                            fontSize = 13.sp,
+                            color = Color.White.copy(alpha = 0.7f),
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+
+                        Divider(color = Color.White.copy(alpha = 0.1f))
+
+                        PermissionItemRow(
+                            icon = Icons.Default.LocationOn,
+                            title = "লোকেশন পারমিশন (Location)",
+                            desc = "আপনার অবস্থান নির্ভুলভাবে যাচাই ও শেয়ার করতে লোকেশন প্রয়োজন।"
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        PermissionItemRow(
+                            icon = Icons.Default.Notifications,
+                            title = "নোটিফিকেশন পারমিশন (Notifications)",
+                            desc = "রিয়েল-টাইম এসএমএস এবং কল নোটিফিকেশন পেতে নোটিফিকেশন পারমিশন আবশ্যক।"
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Button(
+                            onClick = {
+                                launcher.launch(permissions)
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                                .testTag("grant_permissions_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFF10B981),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text(
+                                text = "✅ লোকেশন ও নোটিফিকেশন পারমিশন দিন",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(60.dp)
+                                .background(Color(0xFFFFEB3B).copy(alpha = 0.15f), CircleShape),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Warning,
+                                contentDescription = null,
+                                tint = Color(0xFFFFEB3B),
+                                modifier = Modifier.size(28.dp)
+                            )
+                        }
+
+                        Text(
+                            text = "ব্যাকগ্রাউন্ড রান অনুমতি",
+                            fontSize = 22.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            textAlign = TextAlign.Center
+                        )
+
+                        Text(
+                            text = "নোটিফিকেশন ও ব্যাকগ্রাউন্ড সার্ভিস ১০০% সচল রাখতে ব্যাটারি অপটিমাইজেশন বন্ধ করা আবশ্যক। নিচে ক্লিক করে 'Allow/Don't Restrict' সিলেক্ট করুন।",
+                            fontSize = 13.sp,
+                            color = Color.White.copy(alpha = 0.7f),
+                            textAlign = TextAlign.Center,
+                            lineHeight = 18.sp
+                        )
+
+                        Divider(color = Color.White.copy(alpha = 0.1f))
+
+                        PermissionItemRow(
+                            icon = Icons.Default.Star,
+                            title = "ব্যাটারি অপটিমাইজেশন বাইপাস করুন",
+                            desc = "অ্যান্ড্রয়েড সিস্টেম যাতে ব্যাকগ্রাউন্ডে চ্যাট সার্ভিস বন্ধ না করে দেয়।"
+                        )
+
+                        Spacer(modifier = Modifier.height(4.dp))
+
+                        Button(
+                            onClick = {
+                                triggerBackgroundOptimizationExemption(context)
+                            },
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(52.dp)
+                                .testTag("grant_battery_button"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = Color(0xFFE040FB),
+                                contentColor = Color.White
+                            )
+                        ) {
+                            Text(
+                                text = "🔋 অপটিমাইজেশন বন্ধ করুন (Allow Always)",
+                                fontSize = 15.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
+
+                        TextButton(
+                            onClick = {
+                                skipBatteryOptimizations = true
+                            },
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "পরবর্তীতে করব (Skip for now)",
+                                color = Color.White.copy(alpha = 0.5f),
+                                fontSize = 13.sp
+                            )
+                        }
                     }
                 }
             }
@@ -316,7 +420,29 @@ fun PermissionBlockerScreen(onAllGranted: () -> Unit) {
 }
 
 fun triggerBackgroundOptimizationExemption(context: android.content.Context) {
-    // No-op: background optimization permission requests removed per user instructions
+    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+        val pm = context.getSystemService(android.content.Context.POWER_SERVICE) as android.os.PowerManager
+        if (!pm.isIgnoringBatteryOptimizations(context.packageName)) {
+            try {
+                val intent = android.content.Intent().apply {
+                    action = android.provider.Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                    data = android.net.Uri.parse("package:${context.packageName}")
+                    addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                }
+                context.startActivity(intent)
+            } catch (e: Exception) {
+                try {
+                    val intent = android.content.Intent().apply {
+                        action = android.provider.Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS
+                        addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK)
+                    }
+                    context.startActivity(intent)
+                } catch (ex: Exception) {
+                    ex.printStackTrace()
+                }
+            }
+        }
+    }
 }
 
 @Composable
@@ -4395,6 +4521,7 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
     var showPollDialog by remember { mutableStateOf(false) }
     var showPlusOptionsDialog by remember { mutableStateOf(false) }
     var showGroupMembersDialog by remember { mutableStateOf(false) }
+    var replyingToMessage by remember { mutableStateOf<ChatMessage?>(null) }
 
     var showAiChangePasswordDialog by remember { mutableStateOf(false) }
     var showAiReportUserDialog by remember { mutableStateOf(false) }
@@ -4916,7 +5043,10 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
                                     viewModel.viewAndDecryptMessage(otherMail, msg)
                                 }
                             },
-                            senderPhotoUrl = senderPhotoUrl
+                            senderPhotoUrl = senderPhotoUrl,
+                            onReply = {
+                                replyingToMessage = msg
+                            }
                         )
                     }
                 }
@@ -5015,63 +5145,124 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
             }
 
             if (canSms && isAllowedByAdminPrivacy) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    // Sticker Emojis trigger
-                    IconButton(onClick = {
-                        textInput = "😂"
-                        viewModel.sendMessage("😂")
-                    }) {
-                        Icon(Icons.Filled.Mood, null, tint = MaterialTheme.colorScheme.primary)
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    replyingToMessage?.let { reply ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 12.dp, vertical = 4.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Row(
+                                modifier = Modifier.weight(1f),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Spacer(
+                                    modifier = Modifier
+                                        .width(4.dp)
+                                        .height(36.dp)
+                                        .background(MaterialTheme.colorScheme.primary, RoundedCornerShape(topStart = 12.dp, bottomStart = 12.dp))
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Column {
+                                    Text(
+                                        text = "রিপ্লাই করা হচ্ছে: ${reply.senderName}",
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.primary
+                                )
+                                    Text(
+                                        text = reply.text,
+                                        fontSize = 11.sp,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                            IconButton(
+                                onClick = { replyingToMessage = null },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Cancel Reply",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
+                        }
                     }
 
-                    // Attach/Add Trigger for GPS and files
-                    IconButton(onClick = {
-                        showPlusOptionsDialog = true
-                    }) {
-                        Icon(Icons.Filled.AddCircle, null, tint = MaterialTheme.colorScheme.primary)
-                    }
-
-                    OutlinedTextField(
-                        value = textInput,
-                        onValueChange = {
-                            textInput = it
-                            if (it.isEmpty()) {
-                                viewModel.stopTyping()
-                            } else {
-                                // send typing heartbeat
-                                viewModel.sendTyping()
-                            }
-                        },
-                        placeholder = { Text("বার্তা লিখুন...") },
-                        modifier = Modifier.weight(1f),
-                        shape = RoundedCornerShape(24.dp),
-                        maxLines = 4,
-                        colors = OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = MaterialTheme.colorScheme.primary,
-                            unfocusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
-                        )
-                    )
-
-                    Spacer(modifier = Modifier.width(8.dp))
-
-                    FloatingActionButton(
-                        onClick = {
-                            if (textInput.isNotEmpty()) {
-                                viewModel.sendMessage(textInput)
-                                textInput = ""
-                                viewModel.stopTyping()
-                            }
-                        },
-                        modifier = Modifier.size(44.dp),
-                        shape = CircleShape,
-                        containerColor = MaterialTheme.colorScheme.primary
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(8.dp),
+                        verticalAlignment = Alignment.CenterVertically
                     ) {
-                        Icon(Icons.Default.Send, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        // Sticker Emojis trigger
+                        IconButton(onClick = {
+                            textInput = "😂"
+                            viewModel.sendMessage("😂")
+                        }) {
+                            Icon(Icons.Filled.Mood, null, tint = MaterialTheme.colorScheme.primary)
+                        }
+
+                        // Attach/Add Trigger for GPS and files
+                        IconButton(onClick = {
+                            showPlusOptionsDialog = true
+                        }) {
+                            Icon(Icons.Filled.AddCircle, null, tint = MaterialTheme.colorScheme.primary)
+                        }
+
+                        OutlinedTextField(
+                            value = textInput,
+                            onValueChange = {
+                                textInput = it
+                                if (it.isEmpty()) {
+                                    viewModel.stopTyping()
+                                } else {
+                                    // send typing heartbeat
+                                    viewModel.sendTyping()
+                                }
+                            },
+                            placeholder = { Text("বার্তা লিখুন...") },
+                            modifier = Modifier.weight(1f),
+                            shape = RoundedCornerShape(24.dp),
+                            maxLines = 4,
+                            colors = OutlinedTextFieldDefaults.colors(
+                                focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                unfocusedBorderColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)
+                            )
+                        )
+
+                        Spacer(modifier = Modifier.width(8.dp))
+
+                        FloatingActionButton(
+                            onClick = {
+                                if (textInput.isNotEmpty()) {
+                                    val replyData = replyingToMessage?.let {
+                                        ReplyToData(
+                                            id = it.id,
+                                            text = it.text,
+                                            user = it.senderName
+                                        )
+                                    }
+                                    viewModel.sendMessage(textInput, replyData)
+                                    textInput = ""
+                                    replyingToMessage = null
+                                    viewModel.stopTyping()
+                                }
+                            },
+                            modifier = Modifier.size(44.dp),
+                            shape = CircleShape,
+                            containerColor = MaterialTheme.colorScheme.primary
+                        ) {
+                            Icon(Icons.Default.Send, null, tint = Color.White, modifier = Modifier.size(18.dp))
+                        }
                     }
                 }
             } else {
@@ -6157,7 +6348,8 @@ fun MessageBubble(
     onCopy: () -> Unit = {},
     onDelete: () -> Unit = {},
     onView: () -> Unit = {},
-    senderPhotoUrl: String? = null
+    senderPhotoUrl: String? = null,
+    onReply: () -> Unit = {}
 ) {
     if (msg.text.startsWith("📊 POLL:")) {
         LaunchedEffect(msg.id) {
@@ -6209,6 +6401,37 @@ fun MessageBubble(
         )
     }
 
+    // Swipe-to-reply gesture logic with smooth spring bounce back using standard Modifier.draggable
+    var offsetX by remember { mutableStateOf(0f) }
+    val animatedOffsetX by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = offsetX,
+        animationSpec = androidx.compose.animation.core.spring(
+            dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+            stiffness = androidx.compose.animation.core.Spring.StiffnessLow
+        )
+    )
+
+    val draggableState = rememberDraggableState { delta ->
+        if (msg.isOwn) {
+            offsetX = (offsetX + delta).coerceIn(-150f, 0f)
+        } else {
+            offsetX = (offsetX + delta).coerceIn(0f, 150f)
+        }
+    }
+
+    val swipeModifier = Modifier.draggable(
+        state = draggableState,
+        orientation = Orientation.Horizontal,
+        onDragStopped = { _: Float ->
+            if (msg.isOwn && offsetX <= -80f) {
+                onReply()
+            } else if (!msg.isOwn && offsetX >= 80f) {
+                onReply()
+            }
+            offsetX = 0f
+        }
+    )
+
     Column(modifier = Modifier.fillMaxWidth(), horizontalAlignment = align) {
         // Group Sender ID Label & Verified badge
         if (isGroup && !msg.isOwn) {
@@ -6258,67 +6481,133 @@ fun MessageBubble(
             }
         }
 
-        Row(
-            verticalAlignment = Alignment.Top,
-            horizontalArrangement = if (msg.isOwn) Arrangement.End else Arrangement.Start,
-            modifier = Modifier.fillMaxWidth()
-        ) {
-            if (!msg.isOwn) {
-                val senderImageUrl = senderPhotoUrl ?: extractLinkFromName(msg.senderName)
-                SafeAvatarImage(
-                    model = senderImageUrl,
-                    contentDescription = "Sender Profile Photo",
+        Box(modifier = Modifier.fillMaxWidth()) {
+            // Drag indicators for Reply action
+            if (offsetX > 15f && !msg.isOwn) {
+                Icon(
+                    imageVector = Icons.Default.Reply,
+                    contentDescription = "Reply",
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = (offsetX / 150f).coerceIn(0f, 1f)),
                     modifier = Modifier
-                        .padding(start = 8.dp, top = 4.dp, end = 4.dp)
-                        .size(32.dp)
-                        .clip(CircleShape)
-                        .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f), CircleShape)
+                        .align(Alignment.CenterStart)
+                        .padding(start = 16.dp)
+                        .size(24.dp)
+                )
+            } else if (offsetX < -15f && msg.isOwn) {
+                Icon(
+                    imageVector = Icons.Default.Reply,
+                    contentDescription = "Reply",
+                    tint = MaterialTheme.colorScheme.primary.copy(alpha = (-offsetX / 150f).coerceIn(0f, 1f)),
+                    modifier = Modifier
+                        .graphicsLayer { rotationY = 180f }
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 16.dp)
+                        .size(24.dp)
                 )
             }
-            if (msg.isOwn) {
-                // Delete button
-                IconButton(
-                    onClick = { showDeleteConfirmDialog = true },
-                    modifier = Modifier.size(28.dp).testTag("delete_message_button")
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Delete,
-                        contentDescription = "Delete from Sheet",
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(2.dp))
 
-                // Translation trigger button beside own messages
-                IconButton(
-                    onClick = { isTranslated = !isTranslated },
-                    modifier = Modifier.size(28.dp)
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Translate,
-                        contentDescription = "Translate",
-                        tint = if (isTranslated) Color(0xFF38BDF8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                        modifier = Modifier.size(16.dp)
-                    )
-                }
-                Spacer(modifier = Modifier.width(4.dp))
-            }
-
-            Box(
+            Row(
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = if (msg.isOwn) Arrangement.End else Arrangement.Start,
                 modifier = Modifier
-                    .padding(vertical = 4.dp, horizontal = 8.dp)
-                    .background(bg, shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
-                    .border(
-                        width = if (hasSearchMatch) 2.dp else 0.dp,
-                        color = Color(0xFFF59E0B),
-                        shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
-                    )
-                    .padding(horizontal = 12.dp, vertical = 10.dp)
-                    .weight(1f, fill = false)
+                    .fillMaxWidth()
+                    .graphicsLayer { translationX = animatedOffsetX }
+                    .then(swipeModifier)
             ) {
-                Column {
-                    if (msg.text.startsWith("📊 POLL:")) {
+                if (!msg.isOwn) {
+                    val senderImageUrl = senderPhotoUrl ?: extractLinkFromName(msg.senderName)
+                    SafeAvatarImage(
+                        model = senderImageUrl,
+                        contentDescription = "Sender Profile Photo",
+                        modifier = Modifier
+                            .padding(start = 8.dp, top = 4.dp, end = 4.dp)
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.2f), CircleShape)
+                    )
+                }
+                if (msg.isOwn) {
+                    // Delete button
+                    IconButton(
+                        onClick = { showDeleteConfirmDialog = true },
+                        modifier = Modifier.size(28.dp).testTag("delete_message_button")
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Delete,
+                            contentDescription = "Delete from Sheet",
+                            tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.35f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(2.dp))
+
+                    // Translation trigger button beside own messages
+                    IconButton(
+                        onClick = { isTranslated = !isTranslated },
+                        modifier = Modifier.size(28.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Translate,
+                            contentDescription = "Translate",
+                            tint = if (isTranslated) Color(0xFF38BDF8) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(4.dp))
+                }
+
+                Box(
+                    modifier = Modifier
+                        .padding(vertical = 4.dp, horizontal = 8.dp)
+                        .background(bg, shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
+                        .border(
+                            width = if (hasSearchMatch) 2.dp else 0.dp,
+                            color = Color(0xFFF59E0B),
+                            shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp)
+                        )
+                        .padding(horizontal = 12.dp, vertical = 10.dp)
+                        .weight(1f, fill = false)
+                ) {
+                    Column {
+                        // Render reply parent message preview if it exists
+                        msg.replyTo?.let { reply ->
+                            Box(
+                                modifier = Modifier
+                                    .padding(bottom = 6.dp)
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (msg.isOwn) Color.White.copy(alpha = 0.15f) else Color.Black.copy(alpha = 0.05f))
+                                    .fillMaxWidth()
+                            ) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Spacer(
+                                        modifier = Modifier
+                                            .width(3.dp)
+                                            .height(34.dp)
+                                            .background(if (msg.isOwn) Color.White else MaterialTheme.colorScheme.primary, RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column(modifier = Modifier.padding(vertical = 6.dp, horizontal = 4.dp)) {
+                                        Text(
+                                            text = reply.user,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (msg.isOwn) Color.White.copy(alpha = 0.9f) else MaterialTheme.colorScheme.primary
+                                        )
+                                    Text(
+                                        text = reply.text,
+                                        fontSize = 11.sp,
+                                        color = if (msg.isOwn) Color.White.copy(alpha = 0.7f) else Color.Black.copy(alpha = 0.6f),
+                                        maxLines = 1,
+                                        overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis
+                                    )
+                                }
+                            }
+                        }
+                    }
+
+                        if (msg.text.startsWith("📊 POLL:")) {
                         val lines = msg.text.split("\n")
                         val question = lines.getOrNull(0)?.replace("📊 POLL:", "")?.trim() ?: ""
                         val options = lines.drop(1).map { it.trim() }.filter { it.isNotEmpty() }
@@ -6478,6 +6767,7 @@ fun MessageBubble(
                 }
             }
         }
+    }
 
         // Delivery check status right next to / under own messages
         if (msg.isOwn) {

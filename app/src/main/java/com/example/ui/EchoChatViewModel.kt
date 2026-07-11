@@ -996,6 +996,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                             return@forEach
                         }
                         val isGrp = otherEmail.startsWith("group_")
+                        val chatKey = if (isGrp) otherEmail else listOf(current.email, otherEmail).sorted().joinToString("__")
                         val chatKeySanitized = if (isGrp) sanitizeId(otherEmail) else listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
                         
                         val lastActivity = (remoteLastActivity?.get(chatKeySanitized) as? Number)?.toLong() ?: 0L
@@ -1009,7 +1010,16 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                         val mySeenTs = (mySeenObj?.get("ts") as? Number)?.toLong() ?: 0L
                         
                         val localSeenTs = localSeenTimestamps[otherEmail] ?: 0L
-                        val effectiveSeenTs = maxOf(mySeenTs, localSeenTs)
+                        val loginTime = LocalStorage.getLoginTime(context)
+                        val cachedLocalMsgs = LocalStorage.getLocalMessages(context, chatKey)
+                        
+                        val defaultSeenTs = if (mySeenTs == 0L && localSeenTs == 0L && cachedLocalMsgs.isEmpty()) {
+                            loginTime
+                        } else {
+                            0L
+                        }
+                        
+                        val effectiveSeenTs = maxOf(mySeenTs, localSeenTs, defaultSeenTs)
                         
                         if (lastActivity > 0 && lastSender.isNotEmpty() && lastSender.lowercase() != current.email.lowercase()) {
                             if (lastActivity > effectiveSeenTs) {
@@ -3561,6 +3571,14 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
         LocalStorage.savePromotedAdmin(context, email.lowercase().trim(), permissions)
         _promotedAdmins.value = LocalStorage.getPromotedAdmins(context)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                FirebaseRestClient.service.setValue("promoted_admins/${sanitizeId(email)}", permissions)
+                loadAllConversationsAndUsers()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     fun demoteAdmin(email: String) {
@@ -3569,6 +3587,14 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
         LocalStorage.savePromotedAdmin(context, email.lowercase().trim(), null)
         _promotedAdmins.value = LocalStorage.getPromotedAdmins(context)
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                FirebaseRestClient.service.deleteValue("promoted_admins/${sanitizeId(email)}")
+                loadAllConversationsAndUsers()
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
     }
 
     fun sanitizeId(email: String): String {
