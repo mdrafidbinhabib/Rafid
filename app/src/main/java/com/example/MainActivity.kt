@@ -1,14 +1,14 @@
 package com.example
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.fragment.app.FragmentActivity
 import androidx.lifecycle.ViewModelProvider
 import com.example.ui.EchoChatViewModel
 import com.example.ui.screens.EchoChatApp
 
-class MainActivity : ComponentActivity() {
+class MainActivity : FragmentActivity() {
   private lateinit var viewModel: EchoChatViewModel
 
   override fun onCreate(savedInstanceState: Bundle?) {
@@ -24,6 +24,7 @@ class MainActivity : ComponentActivity() {
   override fun onStart() {
     super.onStart()
     viewModel.setUserOnlineStatus("online")
+    viewModel.setAppLocked(true)
   }
 
   override fun onStop() {

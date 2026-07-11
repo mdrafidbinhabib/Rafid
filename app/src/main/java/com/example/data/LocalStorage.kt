@@ -449,6 +449,30 @@ object LocalStorage {
     fun setSkippedVersion(context: Context, version: String) {
         getPrefs(context).edit().putString("SKIPPED_VERSION", version).apply()
     }
+
+    fun isAppLockEnabled(context: Context): Boolean {
+        return getPrefs(context).getBoolean("APP_LOCK_ENABLED", false)
+    }
+
+    fun setAppLockEnabled(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean("APP_LOCK_ENABLED", enabled).apply()
+    }
+
+    fun isBiometricEnabled(context: Context): Boolean {
+        return getPrefs(context).getBoolean("BIOMETRIC_LOCK_ENABLED", false)
+    }
+
+    fun setBiometricEnabled(context: Context, enabled: Boolean) {
+        getPrefs(context).edit().putBoolean("BIOMETRIC_LOCK_ENABLED", enabled).apply()
+    }
+
+    fun getAppLockPIN(context: Context): String? {
+        return getPrefs(context).getString("APP_LOCK_PIN_VAL", null)
+    }
+
+    fun setAppLockPIN(context: Context, pin: String?) {
+        getPrefs(context).edit().putString("APP_LOCK_PIN_VAL", pin).apply()
+    }
 }
 
 @JsonClass(generateAdapter = true)

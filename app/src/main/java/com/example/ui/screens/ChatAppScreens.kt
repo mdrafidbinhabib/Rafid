@@ -616,6 +616,12 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
 
                 // Global Overlays (e.g. Calls)
                 CallManagerOverlay(viewModel = viewModel)
+
+                // App Lock Screen Overlay
+                val isAppLocked by viewModel.isAppLocked.collectAsState()
+                if (isAppLocked) {
+                    AppLockScreenOverlay(viewModel = viewModel)
+                }
             }
         }
     }
@@ -7112,6 +7118,7 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     TabPill(text = "👤 Profile", active = activeTab == "profile") { activeTab = "profile" }
+                    TabPill(text = "🔒 App Lock", active = activeTab == "applock") { activeTab = "applock" }
                     TabPill(text = "🌐 Language", active = activeTab == "language") { activeTab = "language" }
                     TabPill(text = "🎨 Theme", active = activeTab == "appearance") { activeTab = "appearance" }
                     TabPill(text = "💞 Pair", active = activeTab == "pair") { activeTab = "pair" }
@@ -7859,6 +7866,168 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
 
                     "version" -> {
                         UserVersionHistoryScreen(viewModel = viewModel)
+                    }
+
+                    "applock" -> {
+                        val isLockEnabled by viewModel.isAppLockEnabled.collectAsState()
+                        val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
+                        val currentPIN by viewModel.appLockPIN.collectAsState()
+
+                        var inChangePinMode by remember { mutableStateOf(currentPIN == null) }
+                        var setupPIN by remember { mutableStateOf("") }
+                        var confirmSetupPIN by remember { mutableStateOf("") }
+
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .verticalScroll(rememberScrollState()),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            Text(
+                                text = "🔒 অ্যাপ লক সেটিংস (App Lock)",
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.titleMedium,
+                                color = MaterialTheme.colorScheme.primary
+                            )
+
+                            if (inChangePinMode) {
+                                Text(
+                                    text = "অ্যাপের নিরাপত্তা নিশ্চিত করতে ৪-সংখ্যার PIN সেট করুন। ফোন লক না থাকলেও এটি আপনার চ্যাট সুরক্ষিত রাখবে।",
+                                    fontSize = 12.sp,
+                                    color = Color.Gray
+                                )
+
+                                OutlinedTextField(
+                                    value = setupPIN,
+                                    onValueChange = { if (it.length <= 4) setupPIN = it.filter { char -> char.isDigit() } },
+                                    label = { Text("৪-সংখ্যার নতুন PIN লিখুন") },
+                                    leadingIcon = { Icon(Icons.Default.Lock, null) },
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                        keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword
+                                    ),
+                                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                    modifier = Modifier.fillMaxWidth().testTag("app_lock_setup_pin"),
+                                    singleLine = true
+                                )
+
+                                OutlinedTextField(
+                                    value = confirmSetupPIN,
+                                    onValueChange = { if (it.length <= 4) confirmSetupPIN = it.filter { char -> char.isDigit() } },
+                                    label = { Text("নতুন PIN নিশ্চিত করতে পুনরায় লিখুন") },
+                                    leadingIcon = { Icon(Icons.Default.Lock, null) },
+                                    keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(
+                                        keyboardType = androidx.compose.ui.text.input.KeyboardType.NumberPassword
+                                    ),
+                                    visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+                                    modifier = Modifier.fillMaxWidth().testTag("app_lock_confirm_pin"),
+                                    singleLine = true
+                                )
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    if (currentPIN != null) {
+                                        OutlinedButton(
+                                            onClick = { inChangePinMode = false },
+                                            modifier = Modifier.weight(1f)
+                                        ) {
+                                            Text("বাতিল")
+                                        }
+                                    }
+                                    Button(
+                                        onClick = {
+                                            if (setupPIN.length != 4) {
+                                                Toast.makeText(context, "PIN অবশ্যই ৪-সংখ্যার হতে হবে!", Toast.LENGTH_SHORT).show()
+                                            } else if (setupPIN != confirmSetupPIN) {
+                                                Toast.makeText(context, "উভয় PIN মেলেনি!", Toast.LENGTH_SHORT).show()
+                                            } else {
+                                                viewModel.setAppLockPIN(setupPIN)
+                                                viewModel.setAppLockEnabled(true)
+                                                inChangePinMode = false
+                                                setupPIN = ""
+                                                confirmSetupPIN = ""
+                                                Toast.makeText(context, "PIN সফলভাবে সেট করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                            }
+                                        },
+                                        modifier = Modifier.weight(1f).testTag("app_lock_save_pin_button")
+                                    ) {
+                                        Text("সংরক্ষণ করুন")
+                                    }
+                                }
+                            } else {
+                                // Lock is configured, show settings
+                                Card(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f))
+                                ) {
+                                    Column(modifier = Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text("অ্যাপ লক চালু করুন", fontWeight = FontWeight.Bold)
+                                                Text("অ্যাপ চালু বা পুনরায় ওপেন করার সময় লক স্ক্রিন দেখাবে", fontSize = 11.sp, color = Color.Gray)
+                                            }
+                                            Switch(
+                                                checked = isLockEnabled,
+                                                onCheckedChange = { viewModel.setAppLockEnabled(it) },
+                                                modifier = Modifier.testTag("app_lock_enabled_switch")
+                                            )
+                                        }
+
+                                        HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f))
+
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            horizontalArrangement = Arrangement.SpaceBetween,
+                                            verticalAlignment = Alignment.CenterVertically
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text("ফিঙ্গারপ্রিন্ট / ফেস লক", fontWeight = FontWeight.Bold)
+                                                Text("ডিভাইসের বায়োমেট্রিক বায়োসেন্সর দিয়ে আনলক করুন", fontSize = 11.sp, color = Color.Gray)
+                                            }
+                                            Switch(
+                                                checked = isBiometricEnabled,
+                                                onCheckedChange = { viewModel.setBiometricEnabled(it) },
+                                                enabled = isLockEnabled,
+                                                modifier = Modifier.testTag("app_lock_biometric_switch")
+                                            )
+                                        }
+                                    }
+                                }
+
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                Button(
+                                    onClick = { inChangePinMode = true },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary)
+                                ) {
+                                    Icon(Icons.Default.VpnKey, null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("PIN পরিবর্তন করুন (Change PIN)")
+                                }
+
+                                OutlinedButton(
+                                    onClick = {
+                                        viewModel.setAppLockPIN(null)
+                                        Toast.makeText(context, "অ্যাপ লক সফলভাবে বন্ধ করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                    },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    colors = ButtonDefaults.outlinedButtonColors(contentColor = Color.Red),
+                                    border = BorderStroke(1.dp, Color.Red.copy(alpha = 0.5f))
+                                ) {
+                                    Icon(Icons.Default.Delete, null, modifier = Modifier.size(18.dp))
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text("অ্যাপ লক নিষ্ক্রিয় করুন (Turn Off)")
+                                }
+                            }
+                        }
                     }
                 }
                 }
@@ -8960,5 +9129,290 @@ fun UserVersionHistoryScreen(viewModel: EchoChatViewModel) {
                 }
             }
         }
+    }
+}
+
+@Composable
+fun AppLockScreenOverlay(viewModel: EchoChatViewModel) {
+    val context = LocalContext.current
+    val activity = context as? androidx.fragment.app.FragmentActivity
+    val isBiometricEnabled by viewModel.isBiometricEnabled.collectAsState()
+    val savedPIN by viewModel.appLockPIN.collectAsState()
+
+    var enteredPIN by remember { mutableStateOf("") }
+    var pinErrorMsg by remember { mutableStateOf<String?>(null) }
+    var shakeTrigger by remember { mutableStateOf(false) }
+
+    // Biometric function
+    fun triggerBiometric() {
+        if (activity != null && isBiometricEnabled) {
+            val executor = androidx.core.content.ContextCompat.getMainExecutor(activity)
+            val biometricPrompt = androidx.biometric.BiometricPrompt(activity, executor,
+                object : androidx.biometric.BiometricPrompt.AuthenticationCallback() {
+                    override fun onAuthenticationError(errorCode: Int, errString: CharSequence) {
+                        super.onAuthenticationError(errorCode, errString)
+                        // Silent error, let user use PIN instead
+                    }
+
+                    override fun onAuthenticationSucceeded(result: androidx.biometric.BiometricPrompt.AuthenticationResult) {
+                        super.onAuthenticationSucceeded(result)
+                        viewModel.setAppLocked(false)
+                    }
+
+                    override fun onAuthenticationFailed() {
+                        super.onAuthenticationFailed()
+                    }
+                })
+
+            val promptInfo = androidx.biometric.BiometricPrompt.PromptInfo.Builder()
+                .setTitle("EchoChat Unlock")
+                .setSubtitle("Authenticate using fingerprint or face")
+                .setNegativeButtonText("Use PIN")
+                .setAllowedAuthenticators(androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_STRONG or androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK)
+                .build()
+
+            try {
+                biometricPrompt.authenticate(promptInfo)
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    // Automatically trigger biometric on screen load
+    LaunchedEffect(Unit) {
+        triggerBiometric()
+    }
+
+    val shakeOffset by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (shakeTrigger) 15f else 0f,
+        animationSpec = androidx.compose.animation.core.keyframes {
+            durationMillis = 300
+            0f at 0
+            -15f at 50
+            15f at 100
+            -10f at 150
+            10f at 200
+            -5f at 250
+            0f at 300
+        },
+        finishedListener = {
+            shakeTrigger = false
+        },
+        label = "shake_animation"
+    )
+
+    // Layout
+    Box(
+        modifier = Modifier
+            .fillMaxSize()
+            .background(Color.Black.copy(alpha = 0.95f))
+            .clickable(enabled = true, onClick = {}) // Block behind clicks
+            .padding(16.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.Center,
+            modifier = Modifier.fillMaxWidth().offset(x = shakeOffset.dp)
+        ) {
+            // Animated lock header
+            Box(
+                modifier = Modifier
+                    .size(80.dp)
+                    .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.1f), shape = CircleShape),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Default.Lock,
+                    contentDescription = "App Locked",
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(40.dp)
+                )
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            Text(
+                text = "EchoChat সুরক্ষিত",
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.Bold,
+                color = Color.White
+            )
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = pinErrorMsg ?: "অ্যাপটি আনলক করতে ৪-সংখ্যার PIN লিখুন",
+                style = MaterialTheme.typography.bodyMedium,
+                color = if (pinErrorMsg != null) MaterialTheme.colorScheme.error else Color.Gray,
+                fontWeight = if (pinErrorMsg != null) FontWeight.SemiBold else FontWeight.Normal
+            )
+
+            Spacer(modifier = Modifier.height(32.dp))
+
+            // PIN Dots Indicators
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(16.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                for (i in 0 until 4) {
+                    val filled = i < enteredPIN.length
+                    Box(
+                        modifier = Modifier
+                            .size(16.dp)
+                            .background(
+                                color = if (filled) MaterialTheme.colorScheme.primary else Color.Transparent,
+                                shape = CircleShape
+                            )
+                            .border(2.dp, MaterialTheme.colorScheme.primary, CircleShape)
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(48.dp))
+
+            // Numeric Keypad 1-9
+            Column(
+                verticalArrangement = Arrangement.spacedBy(16.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                modifier = Modifier.widthIn(max = 280.dp)
+            ) {
+                val numRows = listOf(
+                    listOf("1", "2", "3"),
+                    listOf("4", "5", "6"),
+                    listOf("7", "8", "9")
+                )
+
+                for (row in numRows) {
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(24.dp),
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        for (num in row) {
+                            KeypadButton(
+                                text = num,
+                                onClick = {
+                                    if (enteredPIN.length < 4) {
+                                        pinErrorMsg = null
+                                        enteredPIN += num
+                                        if (enteredPIN.length == 4) {
+                                            if (enteredPIN == savedPIN) {
+                                                viewModel.setAppLocked(false)
+                                            } else {
+                                                shakeTrigger = true
+                                                pinErrorMsg = "ভুল PIN, আবার চেষ্টা করুন"
+                                                enteredPIN = ""
+                                            }
+                                        }
+                                    }
+                                },
+                                modifier = Modifier.weight(1f).testTag("pin_key_$num")
+                            )
+                        }
+                    }
+                }
+
+                // Bottom Row (Biometric, 0, Backspace)
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(24.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    // Left: Biometric trigger
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .aspectRatio(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        if (isBiometricEnabled) {
+                            IconButton(
+                                onClick = { triggerBiometric() },
+                                modifier = Modifier
+                                    .size(64.dp)
+                                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape).testTag("pin_key_biometric")
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Fingerprint,
+                                    contentDescription = "Use Biometrics",
+                                    tint = MaterialTheme.colorScheme.primary,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                        }
+                    }
+
+                    // Center: 0
+                    KeypadButton(
+                        text = "0",
+                        onClick = {
+                            if (enteredPIN.length < 4) {
+                                pinErrorMsg = null
+                                enteredPIN += "0"
+                                if (enteredPIN.length == 4) {
+                                    if (enteredPIN == savedPIN) {
+                                        viewModel.setAppLocked(false)
+                                    } else {
+                                        shakeTrigger = true
+                                        pinErrorMsg = "ভুল PIN, আবার চেষ্টা করুন"
+                                        enteredPIN = ""
+                                    }
+                                }
+                            }
+                        },
+                        modifier = Modifier.weight(1f).testTag("pin_key_0")
+                    )
+
+                    // Right: Backspace
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .aspectRatio(1f),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        IconButton(
+                            onClick = {
+                                if (enteredPIN.isNotEmpty()) {
+                                    enteredPIN = enteredPIN.dropLast(1)
+                                }
+                            },
+                            modifier = Modifier
+                                .size(64.dp)
+                                .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape).testTag("pin_key_backspace")
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Backspace,
+                                contentDescription = "Backspace",
+                                tint = Color.White,
+                                modifier = Modifier.size(24.dp)
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun KeypadButton(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .aspectRatio(1f)
+            .clip(CircleShape)
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable { onClick() },
+        contentAlignment = Alignment.Center
+    ) {
+        Text(
+            text = text,
+            style = MaterialTheme.typography.headlineMedium,
+            fontWeight = FontWeight.Bold,
+            color = Color.White
+        )
     }
 }

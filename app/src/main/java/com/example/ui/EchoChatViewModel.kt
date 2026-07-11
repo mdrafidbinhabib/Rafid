@@ -86,6 +86,19 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     private val _isDarkMode = MutableStateFlow(LocalStorage.isDarkMode(context))
     val isDarkMode: StateFlow<Boolean> = _isDarkMode.asStateFlow()
 
+    // App Lock Persistent Configurations
+    private val _isAppLockEnabled = MutableStateFlow(LocalStorage.isAppLockEnabled(context))
+    val isAppLockEnabled: StateFlow<Boolean> = _isAppLockEnabled.asStateFlow()
+
+    private val _isBiometricEnabled = MutableStateFlow(LocalStorage.isBiometricEnabled(context))
+    val isBiometricEnabled: StateFlow<Boolean> = _isBiometricEnabled.asStateFlow()
+
+    private val _appLockPIN = MutableStateFlow(LocalStorage.getAppLockPIN(context))
+    val appLockPIN: StateFlow<String?> = _appLockPIN.asStateFlow()
+
+    private val _isAppLocked = MutableStateFlow(LocalStorage.isAppLockEnabled(context) && LocalStorage.getAppLockPIN(context) != null)
+    val isAppLocked: StateFlow<Boolean> = _isAppLocked.asStateFlow()
+
     private val _chatTheme = MutableStateFlow(LocalStorage.getChatTheme(context))
     val chatTheme: StateFlow<String> = _chatTheme.asStateFlow()
 
@@ -2011,6 +2024,35 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         LocalStorage.restoreConversation(context, email)
         _deletedConversations.value = LocalStorage.getDeletedConversations(context)
         loadAllConversationsAndUsers()
+    }
+
+    fun setAppLockEnabled(enabled: Boolean) {
+        LocalStorage.setAppLockEnabled(context, enabled)
+        _isAppLockEnabled.value = enabled
+        if (!enabled) {
+            _isAppLocked.value = false
+        }
+    }
+
+    fun setBiometricEnabled(enabled: Boolean) {
+        LocalStorage.setBiometricEnabled(context, enabled)
+        _isBiometricEnabled.value = enabled
+    }
+
+    fun setAppLockPIN(pin: String?) {
+        LocalStorage.setAppLockPIN(context, pin)
+        _appLockPIN.value = pin
+        if (pin == null) {
+            setAppLockEnabled(false)
+        }
+    }
+
+    fun setAppLocked(locked: Boolean) {
+        if (locked && _isAppLockEnabled.value && _appLockPIN.value != null) {
+            _isAppLocked.value = true
+        } else if (!locked) {
+            _isAppLocked.value = false
+        }
     }
 
     fun toggleStarMessage(chatMsg: ChatMessage) {
