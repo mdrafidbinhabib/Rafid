@@ -186,3 +186,12 @@ data class PremiumCode(
     val code: Double,
     val color: String
 )
+
+@JsonClass(generateAdapter = true)
+data class AppVersionInfo(
+    val versionNumber: String,
+    val title: String,
+    val link: String,
+    val forceUpdate: Boolean
+)
+

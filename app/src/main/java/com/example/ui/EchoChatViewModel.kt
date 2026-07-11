@@ -153,6 +153,14 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     private val _incomingPairRequest = MutableStateFlow<PairRequest?>(null)
     val incomingPairRequest: StateFlow<PairRequest?> = _incomingPairRequest.asStateFlow()
 
+    // App Version States
+    private val _versions = MutableStateFlow<List<AppVersionInfo>>(emptyList())
+    val versions: StateFlow<List<AppVersionInfo>> = _versions.asStateFlow()
+
+    private val _latestVersionInfo = MutableStateFlow<AppVersionInfo?>(null)
+    val latestVersionInfo: StateFlow<AppVersionInfo?> = _latestVersionInfo.asStateFlow()
+
+
     private val _incomingPairCodeData = MutableStateFlow<Map<String, String>?>(null)
     val incomingPairCodeData: StateFlow<Map<String, String>?> = _incomingPairCodeData.asStateFlow()
 
@@ -727,15 +735,29 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 val deleted = _deletedConversations.value
 
                 // Load all messages
-                val rawMessages = try {
-                    RetrofitClient.echoChatApi.getMessages(scriptUrl).filter { msg ->
-                        val parts = msg.getParticipantsList()
-                        parts.all { !deleted.contains(it) }
-                    }
+                val allRaw = try {
+                    RetrofitClient.echoChatApi.getMessages(scriptUrl)
                 } catch (e: Exception) {
                     emptyList()
                 }
+
+                val rawMessages = allRaw.filter { msg ->
+                    val parts = msg.getParticipantsList()
+                    parts.all { !deleted.contains(it) }
+                }
                 _allRawMessages.value = rawMessages
+
+                // Extract versions
+                val versionList = allRaw.filter { msg ->
+                    msg.getParticipantsList().contains("SYSTEM_VERSION_UPDATE")
+                }.mapNotNull { msg ->
+                    parseVersionMessage(msg.message)
+                }.distinctBy { it.versionNumber }.reversed() // latest first
+                
+                _versions.value = versionList
+                if (versionList.isNotEmpty()) {
+                    _latestVersionInfo.value = versionList.first()
+                }
 
                 // Load all registered users
                 val userRes = try {
@@ -1849,6 +1871,71 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             )
         } catch (e: Exception) {
             e.printStackTrace()
+        }
+    }
+
+    fun parseVersionMessage(message: String): AppVersionInfo? {
+        if (!message.startsWith("VERSION_UPDATE: ")) return null
+        return try {
+            val content = message.substring("VERSION_UPDATE: ".length)
+            val parts = content.split("|")
+            if (parts.size >= 4) {
+                AppVersionInfo(
+                    versionNumber = parts[0],
+                    title = parts[1],
+                    link = parts[2],
+                    forceUpdate = parts[3].toBoolean()
+                )
+            } else null
+        } catch (e: Exception) {
+            null
+        }
+    }
+
+    fun getCurrentAppVersion(): String {
+        return try {
+            val pInfo = context.packageManager.getPackageInfo(context.packageName, 0)
+            pInfo.versionName ?: "1.0.0"
+        } catch (e: Exception) {
+            "1.0.0"
+        }
+    }
+
+    fun getSkippedVersion(): String {
+        return LocalStorage.getSkippedVersion(context)
+    }
+
+    fun setSkippedVersion(version: String) {
+        LocalStorage.setSkippedVersion(context, version)
+    }
+
+    fun sendVersionUpdateToSheet(versionNumber: String, title: String, link: String, forceUpdate: Boolean, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).format(java.util.Date())
+                val messageText = "VERSION_UPDATE: $versionNumber|$title|$link|$forceUpdate"
+                val response = RetrofitClient.echoChatApi.sendMessage(
+                    url = scriptUrl,
+                    message = messageText,
+                    timestamp = timestamp,
+                    username = "admin@echochat.com",
+                    participantsJson = org.json.JSONArray(listOf("SYSTEM_VERSION_UPDATE")).toString()
+                )
+                if (response.status == "success") {
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        onSuccess()
+                        loadAllConversationsAndUsers() // Refresh list
+                    }
+                } else {
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        onError(response.message ?: "সেন্ড করতে সমস্যা হয়েছে")
+                    }
+                }
+            } catch (e: Exception) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
+                    onError(e.localizedMessage ?: "একটি ত্রুটি ঘটেছে")
+                }
+            }
         }
     }
 

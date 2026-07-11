@@ -441,6 +441,14 @@ object LocalStorage {
         val key = "USER_BLOCKED_USERS_$suffix"
         prefs.edit().putStringSet(key, blockedEmails).apply()
     }
+
+    fun getSkippedVersion(context: Context): String {
+        return getPrefs(context).getString("SKIPPED_VERSION", "") ?: ""
+    }
+
+    fun setSkippedVersion(context: Context, version: String) {
+        getPrefs(context).edit().putString("SKIPPED_VERSION", version).apply()
+    }
 }
 
 @JsonClass(generateAdapter = true)

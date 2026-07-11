@@ -488,6 +488,9 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
     val isDarkMode by viewModel.isDarkMode.collectAsState()
     val currentTheme by viewModel.chatTheme.collectAsState()
     val offensiveWarningMessage by viewModel.offensiveWarningMessage.collectAsState()
+    val latestVersionInfo by viewModel.latestVersionInfo.collectAsState()
+    val currentAppVersion = remember { viewModel.getCurrentAppVersion() }
+    var userSkippedVersion by remember { mutableStateOf(viewModel.getSkippedVersion()) }
 
     val bgBrush = getThemeGradient(currentTheme)
 
@@ -543,6 +546,86 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
                         }
                     }
                 )
+            }
+
+            val latestVer = latestVersionInfo
+            if (latestVer != null && latestVer.versionNumber != currentAppVersion) {
+                if (latestVer.forceUpdate) {
+                    AlertDialog(
+                        onDismissRequest = {},
+                        title = { Text("🚀 নতুন আপডেট উপলব্ধ (${latestVer.versionNumber})") },
+                        text = {
+                            Column {
+                                Text(latestVer.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("অ্যাপটি ব্যবহার করা চালিয়ে যেতে আপনাকে অবশ্যই নতুন ভার্সনটি ডাউনলোড করতে হবে।")
+                            }
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    try {
+                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(latestVer.link))
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    }
+                                    (context as? android.app.Activity)?.finish()
+                                }
+                            ) {
+                                Text("ডাউনলোড করুন ⬇️")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(
+                                onClick = {
+                                    (context as? android.app.Activity)?.finish()
+                                }
+                            ) {
+                                Text("বন্ধ করুন ❌")
+                            }
+                        }
+                    )
+                } else if (latestVer.versionNumber != userSkippedVersion) {
+                    AlertDialog(
+                        onDismissRequest = {
+                            viewModel.setSkippedVersion(latestVer.versionNumber)
+                            userSkippedVersion = latestVer.versionNumber
+                        },
+                        title = { Text("🚀 নতুন আপডেট উপলব্ধ (${latestVer.versionNumber})") },
+                        text = {
+                            Column {
+                                Text(latestVer.title, fontWeight = FontWeight.Bold, style = MaterialTheme.typography.titleMedium)
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text("আপনি কি এই সংস্করণটি ডাউনলোড করতে চান? চাইলে স্কিপ করতে পারেন।")
+                            }
+                        },
+                        confirmButton = {
+                            Button(
+                                onClick = {
+                                    try {
+                                        val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(latestVer.link))
+                                        context.startActivity(intent)
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    }
+                                }
+                            ) {
+                                Text("ডাউনলোড করুন")
+                            }
+                        },
+                        dismissButton = {
+                            TextButton(
+                                onClick = {
+                                    viewModel.setSkippedVersion(latestVer.versionNumber)
+                                    userSkippedVersion = latestVer.versionNumber
+                                }
+                            ) {
+                                Text("স্কিপ করুন")
+                            }
+                        }
+                    )
+                }
             }
 
             Box(
@@ -2066,6 +2149,18 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                             Text("✔️ Verify (ভেরিফিকেশন)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                         }
                                     }
+
+                                    Button(
+                                        onClick = { adminSubTab = "version" },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (adminSubTab == "version") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                            contentColor = if (adminSubTab == "version") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                    ) {
+                                        Text("🚀 Version (ভার্সন)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
 
                                 if (adminSubTab == "spy") {
@@ -3063,6 +3158,8 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                             }
                                         }
                                     }
+                                } else if (adminSubTab == "version") {
+                                    AdminVersionPanel(viewModel = viewModel)
                                 }
                             }
                         } else {
@@ -7055,6 +7152,7 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                     TabPill(text = "💞 Pair", active = activeTab == "pair") { activeTab = "pair" }
                     TabPill(text = "🔑 Password", active = activeTab == "password") { activeTab = "password" }
                     TabPill(text = "📱 Device", active = activeTab == "device") { activeTab = "device" }
+                    TabPill(text = "🚀 Version", active = activeTab == "version") { activeTab = "version" }
                 }
 
                 Spacer(modifier = Modifier.height(16.dp))
@@ -7792,6 +7890,10 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                                 }
                             }
                         }
+                    }
+
+                    "version" -> {
+                        UserVersionHistoryScreen(viewModel = viewModel)
                     }
                 }
                 }
@@ -8536,5 +8638,312 @@ fun parseColorString(colorStr: String): Color {
         }
     } catch (e: Exception) {
         Color.Gray
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+fun AdminVersionPanel(viewModel: EchoChatViewModel) {
+    val context = LocalContext.current
+    var versionNumber by remember { mutableStateOf("") }
+    var title by remember { mutableStateOf("") }
+    var link by remember { mutableStateOf("") }
+    var forceUpdate by remember { mutableStateOf(false) } // Default to false (No), true is Yes
+
+    val versions by viewModel.versions.collectAsState()
+    var isSending by remember { mutableStateOf(false) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp)
+    ) {
+        Card(
+            modifier = Modifier.fillMaxWidth(),
+            colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Column(
+                modifier = Modifier.padding(16.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                Text(
+                    text = "🚀 নতুন অ্যাপ সংস্করণ প্রকাশ করুন",
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    color = MaterialTheme.colorScheme.primary
+                )
+
+                OutlinedTextField(
+                    value = versionNumber,
+                    onValueChange = { versionNumber = it },
+                    label = { Text("ভার্সন নাম্বার (যেমন: 1.0.1)") },
+                    placeholder = { Text("1.0.1") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                OutlinedTextField(
+                    value = title,
+                    onValueChange = { title = it },
+                    label = { Text("টাইটেল/বিবরণ") },
+                    placeholder = { Text("নতুন ফিচার এবং বাগ ফিক্স!") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                OutlinedTextField(
+                    value = link,
+                    onValueChange = { link = it },
+                    label = { Text("ডাউনলোড লিংক") },
+                    placeholder = { Text("https://example.com/download") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
+                // Yes/No Force Update selection with pills
+                Text("বাধ্যতামূলক ডাউনলোড করতে হবে? (Force Update)", fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (forceUpdate) MaterialTheme.colorScheme.primary else Color.DarkGray.copy(alpha = 0.5f))
+                            .clickable { forceUpdate = true }
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("হ্যাঁ (Yes)", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(if (!forceUpdate) MaterialTheme.colorScheme.primary else Color.DarkGray.copy(alpha = 0.5f))
+                            .clickable { forceUpdate = false }
+                            .padding(vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text("না (No)", color = Color.White, fontWeight = FontWeight.Bold)
+                    }
+                }
+
+                Spacer(modifier = Modifier.height(8.dp))
+
+                Button(
+                    onClick = {
+                        if (versionNumber.isEmpty() || title.isEmpty() || link.isEmpty()) {
+                            Toast.makeText(context, "অনুগ্রহ করে সবগুলো ঘর পূরণ করুন", Toast.LENGTH_SHORT).show()
+                            return@Button
+                        }
+                        isSending = true
+                        viewModel.sendVersionUpdateToSheet(
+                            versionNumber = versionNumber.trim(),
+                            title = title.trim(),
+                            link = link.trim(),
+                            forceUpdate = forceUpdate,
+                            onSuccess = {
+                                isSending = false
+                                Toast.makeText(context, "ভার্সন সফলভাবে আপডেট করা হয়েছে!", Toast.LENGTH_SHORT).show()
+                                versionNumber = ""
+                                title = ""
+                                link = ""
+                                forceUpdate = false
+                            },
+                            onError = { err ->
+                                isSending = false
+                                Toast.makeText(context, "ত্রুটি: $err", Toast.LENGTH_LONG).show()
+                            }
+                        )
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    enabled = !isSending
+                ) {
+                    if (isSending) {
+                        CircularProgressIndicator(modifier = Modifier.size(20.dp), color = Color.White)
+                    } else {
+                        Text("সেন্ড করুন 🚀", fontWeight = FontWeight.Bold)
+                    }
+                }
+            }
+        }
+
+        // List of previous versions
+        Text(
+            text = "📜 পূর্ববর্তী সংস্করণসমূহ (Version History)",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            modifier = Modifier.padding(top = 8.dp)
+        )
+
+        if (versions.isEmpty()) {
+            Text("কোনো পূর্ববর্তী সংস্করণ পাওয়া যায়নি।", color = Color.Gray, fontSize = 13.sp)
+        } else {
+            versions.forEach { ver ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.DarkGray.copy(alpha = 0.3f)),
+                    border = BorderStroke(1.dp, if (ver.forceUpdate) MaterialTheme.colorScheme.primary.copy(alpha = 0.5f) else Color.DarkGray)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .clickable {
+                                try {
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(ver.link))
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "লিংক ওপেন করতে সমস্যা হয়েছে", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "ভার্সন: ${ver.versionNumber}",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 15.sp
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(if (ver.forceUpdate) Color.Red.copy(alpha = 0.2f) else Color.Green.copy(alpha = 0.2f))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = if (ver.forceUpdate) "বাধ্যতামূলক" else "ঐচ্ছিক",
+                                    color = if (ver.forceUpdate) Color.Red else Color.Green,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Text(
+                            text = ver.title,
+                            fontWeight = FontWeight.SemiBold,
+                            fontSize = 13.sp,
+                            color = Color.White
+                        )
+                        Text(
+                            text = "লিংক: ${ver.link}",
+                            fontSize = 11.sp,
+                            color = Color.LightGray,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun UserVersionHistoryScreen(viewModel: EchoChatViewModel) {
+    val context = LocalContext.current
+    val versions by viewModel.versions.collectAsState()
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth(),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = "🚀 অ্যাপ সংস্করণ তালিকা (Version History)",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+        Text(
+            text = "নিচের তালিকা থেকে যেকোনো টাইটেলের উপর ক্লিক করে সরাসরি লিংক ওপেন করতে পারবেন এবং সেই ভার্সনটি ডাউনলোড করতে পারবেন।",
+            fontSize = 12.sp,
+            color = Color.LightGray,
+            lineHeight = 16.sp
+        )
+
+        Spacer(modifier = Modifier.height(4.dp))
+
+        if (versions.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(24.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                Text("কোনো সংস্করণ তালিকা পাওয়া যায়নি।", color = Color.Gray, fontSize = 13.sp)
+            }
+        } else {
+            versions.forEach { ver ->
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(12.dp),
+                    colors = CardDefaults.cardColors(containerColor = Color.DarkGray.copy(alpha = 0.3f)),
+                    border = BorderStroke(1.dp, Color.DarkGray)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .clickable {
+                                try {
+                                    val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(ver.link))
+                                    context.startActivity(intent)
+                                } catch (e: Exception) {
+                                    Toast.makeText(context, "লিংক ওপেন করতে সমস্যা হয়েছে", Toast.LENGTH_SHORT).show()
+                                }
+                            }
+                            .padding(16.dp),
+                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = "সংস্করণ: ${ver.versionNumber}",
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.primary,
+                                fontSize = 14.sp
+                            )
+                            if (ver.forceUpdate) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(Color.Red.copy(alpha = 0.2f))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp)
+                                ) {
+                                    Text("বাধ্যতামূলক", color = Color.Red, fontSize = 9.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
+                        Text(
+                            text = ver.title,
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 13.sp,
+                            color = Color.White
+                        )
+                        Text(
+                            text = ver.link,
+                            fontSize = 11.sp,
+                            color = Color.Gray,
+                            maxLines = 1
+                        )
+                    }
+                }
+            }
+        }
     }
 }

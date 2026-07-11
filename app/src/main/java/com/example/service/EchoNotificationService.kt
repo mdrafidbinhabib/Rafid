@@ -70,6 +70,28 @@ class EchoNotificationService : Service() {
         return START_STICKY
     }
 
+    override fun onTaskRemoved(rootIntent: Intent?) {
+        super.onTaskRemoved(rootIntent)
+        // Fire broadcast to EchoServiceRestartReceiver to restart the service when swiped away
+        val restartIntent = Intent(applicationContext, EchoServiceRestartReceiver::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            applicationContext,
+            1,
+            restartIntent,
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        try {
+            alarmManager.set(
+                AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + 1000,
+                pendingIntent
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
     private fun createNotificationChannels() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
@@ -492,5 +514,24 @@ class EchoNotificationService : Service() {
             e.printStackTrace()
         }
         serviceJob.cancel() // Cancel all polling tasks
+
+        // Fire broadcast to restart the service so it keeps polling
+        val restartIntent = Intent(applicationContext, EchoServiceRestartReceiver::class.java)
+        val pendingIntent = PendingIntent.getBroadcast(
+            applicationContext,
+            1,
+            restartIntent,
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+        )
+        val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        try {
+            alarmManager.set(
+                AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + 2000,
+                pendingIntent
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
     }
 }
