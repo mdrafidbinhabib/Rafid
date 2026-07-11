@@ -580,6 +580,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
         LocalStorage.clearLoggedInUser(context)
         _currentUser.value = null
+        skippedVersionInSession = ""
         reloadSecuredAndHiddenChats()
         stopSynchronization()
     }
@@ -1901,12 +1902,14 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
+    private var skippedVersionInSession: String = ""
+
     fun getSkippedVersion(): String {
-        return LocalStorage.getSkippedVersion(context)
+        return skippedVersionInSession
     }
 
     fun setSkippedVersion(version: String) {
-        LocalStorage.setSkippedVersion(context, version)
+        skippedVersionInSession = version
     }
 
     fun sendVersionUpdateToSheet(versionNumber: String, title: String, link: String, forceUpdate: Boolean, onSuccess: () -> Unit, onError: (String) -> Unit) {

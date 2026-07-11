@@ -490,7 +490,7 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
     val offensiveWarningMessage by viewModel.offensiveWarningMessage.collectAsState()
     val latestVersionInfo by viewModel.latestVersionInfo.collectAsState()
     val currentAppVersion = remember { viewModel.getCurrentAppVersion() }
-    var userSkippedVersion by remember { mutableStateOf(viewModel.getSkippedVersion()) }
+    var userSkippedVersion by remember(currentUser) { mutableStateOf(viewModel.getSkippedVersion()) }
 
     val bgBrush = getThemeGradient(currentTheme)
 
@@ -549,7 +549,8 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
             }
 
             val latestVer = latestVersionInfo
-            if (latestVer != null && latestVer.versionNumber != currentAppVersion) {
+            val isUserRafid = viewModel.isRafidUser(currentUser)
+            if (latestVer != null && latestVer.versionNumber != currentAppVersion && !isUserRafid) {
                 if (latestVer.forceUpdate) {
                     AlertDialog(
                         onDismissRequest = {},
