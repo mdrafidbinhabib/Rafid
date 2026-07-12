@@ -193,6 +193,31 @@ data class AppVersionInfo(
     val title: String,
     val link: String,
     val forceUpdate: Boolean,
-    val messageId: String? = null
+    val messageId: String? = null,
+    val changes: String? = ""
+)
+
+@JsonClass(generateAdapter = true)
+data class AppsScriptVersionItem(
+    val id: String,
+    val version: String,
+    val title: String,
+    val link: String,
+    val changes: String,
+    val date: String
+)
+
+@JsonClass(generateAdapter = true)
+data class AppsScriptVersionListResponse(
+    val success: Boolean,
+    val message: String? = null,
+    val data: List<AppsScriptVersionItem>? = null
+)
+
+@JsonClass(generateAdapter = true)
+data class AppsScriptVersionActionResponse(
+    val success: Boolean,
+    val message: String? = null,
+    val id: String? = null
 )
 

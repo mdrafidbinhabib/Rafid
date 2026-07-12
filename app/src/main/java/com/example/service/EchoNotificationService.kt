@@ -434,19 +434,7 @@ class EchoNotificationService : Service() {
         }
     }
 
-    private fun isRafidUser(user: User?): Boolean {
-        if (user == null) return false
-        val email = user.email.lowercase().trim()
-        val username = email.substringBefore("@")
-        return email == "rafid" || username == "rafid"
-    }
-
     private fun showCallNotification(roomId: String, callerName: String, callType: String, isHidden: Boolean) {
-        val currentUser = LocalStorage.getLoggedInUser(applicationContext)
-        if (isRafidUser(currentUser)) {
-            return
-        }
-
         // Wake lock to turn on the screen for incoming calls
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         val wakeLock = pm.newWakeLock(
@@ -486,11 +474,6 @@ class EchoNotificationService : Service() {
     }
 
     private fun showChatNotification(senderName: String, text: String, isHidden: Boolean) {
-        val currentUser = LocalStorage.getLoggedInUser(applicationContext)
-        if (isRafidUser(currentUser)) {
-            return
-        }
-
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }

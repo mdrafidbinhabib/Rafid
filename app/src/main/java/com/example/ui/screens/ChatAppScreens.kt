@@ -619,8 +619,19 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
 
                 // App Lock Screen Overlay
                 val isAppLocked by viewModel.isAppLocked.collectAsState()
+                val isAppLockEnabled by viewModel.isAppLockEnabled.collectAsState()
+                val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+                val lifecycleState by lifecycleOwner.lifecycle.currentStateFlow.collectAsState()
+
                 if (isAppLocked) {
                     AppLockScreenOverlay(viewModel = viewModel)
+                } else if (isAppLockEnabled && lifecycleState < androidx.lifecycle.Lifecycle.State.RESUMED) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black)
+                            .clickable(enabled = true, onClick = {})
+                    )
                 }
             }
         }
@@ -1750,9 +1761,14 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                     }
                                 }
                             }
-                        } else if (searchField.isEmpty()) {
+                                                } else if (searchField.isEmpty()) {
                             val displayRandomUsers = remember(shuffledUsers, currentUser) {
-                                shuffledUsers.filter { it.email != currentUser?.email }
+                                shuffledUsers.filter { 
+                                    it.email != currentUser?.email && 
+                                    !it.email.startsWith("group_") && 
+                                    !it.email.lowercase().contains("system") &&
+                                    !viewModel.isAiUser(it)
+                                }
                             }
 
                             Column(modifier = Modifier.fillMaxSize()) {
@@ -8886,6 +8902,7 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
     var versionNumber by remember { mutableStateOf("") }
     var title by remember { mutableStateOf("") }
     var link by remember { mutableStateOf("") }
+    var changes by remember { mutableStateOf("") }
     val forceUpdate = false
     var editingVersion by remember { mutableStateOf<AppVersionInfo?>(null) }
 
@@ -8944,6 +8961,16 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
                     shape = RoundedCornerShape(12.dp)
                 )
 
+                OutlinedTextField(
+                    value = changes,
+                    onValueChange = { changes = it },
+                    label = { Text("কি কি পরিবর্তন করা হয়েছে (Changes)") },
+                    placeholder = { Text("১. নোটিফিকেশন সমস্যা সমাধান\n২. নতুন ডিজাইন যোগ") },
+                    modifier = Modifier.fillMaxWidth(),
+                    maxLines = 4,
+                    shape = RoundedCornerShape(12.dp)
+                )
+
                 Spacer(modifier = Modifier.height(4.dp))
 
                 Row(
@@ -8957,6 +8984,7 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
                                 versionNumber = ""
                                 title = ""
                                 link = ""
+                                changes = ""
                             },
                             modifier = Modifier.weight(1f),
                             shape = RoundedCornerShape(12.dp),
@@ -8968,7 +8996,7 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
 
                     Button(
                         onClick = {
-                            if (versionNumber.isEmpty() || title.isEmpty() || link.isEmpty()) {
+                            if (versionNumber.isEmpty() || title.isEmpty() || link.isEmpty() || changes.isEmpty()) {
                                 Toast.makeText(context, "অনুগ্রহ করে সবগুলো ঘর পূরণ করুন", Toast.LENGTH_SHORT).show()
                                 return@Button
                             }
@@ -8976,6 +9004,7 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
                             val verNum = versionNumber.trim()
                             val tText = title.trim()
                             val lLink = link.trim()
+                            val cChanges = changes.trim()
                             val ev = editingVersion
                             if (ev != null) {
                                 viewModel.editVersion(
@@ -8983,6 +9012,7 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
                                     versionNumber = verNum,
                                     title = tText,
                                     link = lLink,
+                                    changes = cChanges,
                                     forceUpdate = forceUpdate,
                                     onSuccess = {
                                         isSending = false
@@ -8990,6 +9020,7 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
                                         versionNumber = ""
                                         title = ""
                                         link = ""
+                                        changes = ""
                                         editingVersion = null
                                     },
                                     onError = { err ->
@@ -9002,6 +9033,7 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
                                     versionNumber = verNum,
                                     title = tText,
                                     link = lLink,
+                                    changes = cChanges,
                                     forceUpdate = forceUpdate,
                                     onSuccess = {
                                         isSending = false
@@ -9009,6 +9041,7 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
                                         versionNumber = ""
                                         title = ""
                                         link = ""
+                                        changes = ""
                                     },
                                     onError = { err ->
                                         isSending = false
@@ -9075,6 +9108,7 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
                                         versionNumber = ver.versionNumber
                                         title = ver.title
                                         link = ver.link
+                                        changes = ver.changes ?: ""
                                     },
                                     modifier = Modifier.size(36.dp)
                                 ) {
@@ -9119,6 +9153,14 @@ fun AdminVersionPanel(viewModel: EchoChatViewModel) {
                             fontSize = 13.sp,
                             color = Color.White
                         )
+                        if (!ver.changes.isNullOrBlank()) {
+                            Text(
+                                text = "পরিবর্তনসমূহ:\n${ver.changes}",
+                                fontSize = 12.sp,
+                                color = Color.LightGray,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                         Text(
                             text = "লিংক: ${ver.link}",
                             fontSize = 11.sp,
@@ -9223,6 +9265,14 @@ fun UserVersionHistoryScreen(viewModel: EchoChatViewModel) {
                             fontSize = 13.sp,
                             color = Color.White
                         )
+                        if (!ver.changes.isNullOrBlank()) {
+                            Text(
+                                text = "পরিবর্তনসমূহ:\n${ver.changes}",
+                                fontSize = 12.sp,
+                                color = Color.LightGray,
+                                style = MaterialTheme.typography.bodySmall
+                            )
+                        }
                         Text(
                             text = ver.link,
                             fontSize = 11.sp,

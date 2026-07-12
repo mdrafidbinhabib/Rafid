@@ -26,6 +26,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     private val context = application.applicationContext
     private val scriptUrl = "https://script.google.com/macros/s/AKfycbzvqNxH0BGFuXbIvJPMDR6uqUkWvekQvS8asurlYnRoT23lMCZq9NLmLoO4ohje_3Otbg/exec"
+    private val versionScriptUrl = "https://script.google.com/macros/s/AKfycbzzmh1S2v4V21mqlHouQtFpMDtIv1BMeeKgWN_JTp6E5eCHgTBSVHx81eAjBhszU-Q76g/exec"
 
     // Authentication States
     private val _currentUser = MutableStateFlow<User?>(null)
@@ -324,7 +325,11 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
         reloadSecuredAndHiddenChats()
         val verified = LocalStorage.getVerifiedUsers(context).toMutableMap()
-        verified["md.r.rafid1234@gmail.com"] = "gold"
+        if (isRafidUser(savedUser)) {
+            savedUser?.email?.lowercase()?.trim()?.let { email ->
+                verified[email] = "gold"
+            }
+        }
         _premiumVerifiedColors.value = verified
         loadCustomBadWords()
     }
@@ -763,16 +768,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 }
                 _allRawMessages.value = rawMessages
 
-                // Extract versions
-                val versionList = allRaw.filter { msg ->
-                    msg.getParticipantsList().contains("SYSTEM_VERSION_UPDATE")
-                }.mapNotNull { msg ->
-                    parseVersionMessage(msg.message, msg.id)
-                }.reversed().distinctBy { it.versionNumber } // latest first and distinct!
-                
-                _versions.value = versionList
-                if (versionList.isNotEmpty()) {
-                    _latestVersionInfo.value = versionList.first()
+                // Load versions from Google Apps Script Web App
+                launch {
+                    loadVersionsFromAppsScript()
                 }
 
                 // Load all registered users
@@ -865,7 +863,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                                 }
                             }
                             // Always guarantee rafid gets golden badge
-                            mergedVerifiedColors["md.r.rafid1234@gmail.com"] = "gold"
+                            activeUsersWithAI.find { isRafidUser(it) }?.let { rafid ->
+                                mergedVerifiedColors[rafid.email.lowercase().trim()] = "gold"
+                            }
                             _premiumVerifiedColors.value = mergedVerifiedColors
                             mergedVerifiedColors.forEach { (email, color) ->
                                 LocalStorage.saveVerifiedUser(context, email, color)
@@ -1940,19 +1940,45 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         LocalStorage.setSkippedVersion(context, version)
     }
 
-    fun sendVersionUpdateToSheet(versionNumber: String, title: String, link: String, forceUpdate: Boolean, onSuccess: () -> Unit, onError: (String) -> Unit) {
+    fun loadVersionsFromAppsScript() {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).format(java.util.Date())
-                val messageText = "VERSION_UPDATE: $versionNumber|$title|$link|$forceUpdate"
-                val response = RetrofitClient.echoChatApi.sendMessage(
-                    url = scriptUrl,
-                    message = messageText,
-                    timestamp = timestamp,
-                    username = "admin@echochat.com",
-                    participantsJson = org.json.JSONArray(listOf("SYSTEM_VERSION_UPDATE")).toString()
+                val res = RetrofitClient.echoChatApi.getAppsScriptVersions(versionScriptUrl)
+                if (res.success && res.data != null) {
+                    val list = res.data.map { item ->
+                        AppVersionInfo(
+                            versionNumber = item.version,
+                            title = item.title,
+                            link = item.link,
+                            forceUpdate = item.changes.contains("force_update", ignoreCase = true),
+                            messageId = item.id,
+                            changes = item.changes
+                        )
+                    }
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        _versions.value = list
+                        if (list.isNotEmpty()) {
+                            _latestVersionInfo.value = list.first()
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    fun sendVersionUpdateToSheet(versionNumber: String, title: String, link: String, changes: String, forceUpdate: Boolean = false, onSuccess: () -> Unit, onError: (String) -> Unit) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val response = RetrofitClient.echoChatApi.addAppsScriptVersion(
+                    url = versionScriptUrl,
+                    version = versionNumber,
+                    title = title,
+                    link = link,
+                    changes = changes
                 )
-                if (response.status == "success") {
+                if (response.success) {
                     kotlinx.coroutines.withContext(Dispatchers.Main) {
                         onSuccess()
                         loadAllConversationsAndUsers() // Refresh list
@@ -1973,22 +1999,11 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     fun deleteVersion(messageId: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                var response = RetrofitClient.echoChatApi.deleteMessage(
-                    url = scriptUrl,
-                    id = messageId,
-                    sender = "admin@echochat.com"
+                val response = RetrofitClient.echoChatApi.deleteAppsScriptVersion(
+                    url = versionScriptUrl,
+                    id = messageId
                 )
-                if (response.status != "success") {
-                    val currentEmail = _currentUser.value?.email
-                    if (currentEmail != null) {
-                        response = RetrofitClient.echoChatApi.deleteMessage(
-                            url = scriptUrl,
-                            id = messageId,
-                            sender = currentEmail
-                        )
-                    }
-                }
-                if (response.status == "success") {
+                if (response.success) {
                     kotlinx.coroutines.withContext(Dispatchers.Main) {
                         onSuccess()
                         loadAllConversationsAndUsers() // Refresh list
@@ -2006,47 +2021,25 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         }
     }
 
-    fun editVersion(oldMessageId: String, versionNumber: String, title: String, link: String, forceUpdate: Boolean, onSuccess: () -> Unit, onError: (String) -> Unit) {
+    fun editVersion(oldMessageId: String, versionNumber: String, title: String, link: String, changes: String, forceUpdate: Boolean = false, onSuccess: () -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                var deleteResponse = RetrofitClient.echoChatApi.deleteMessage(
-                    url = scriptUrl,
+                val response = RetrofitClient.echoChatApi.editAppsScriptVersion(
+                    url = versionScriptUrl,
                     id = oldMessageId,
-                    sender = "admin@echochat.com"
+                    version = versionNumber,
+                    title = title,
+                    link = link,
+                    changes = changes
                 )
-                if (deleteResponse.status != "success") {
-                    val currentEmail = _currentUser.value?.email
-                    if (currentEmail != null) {
-                        deleteResponse = RetrofitClient.echoChatApi.deleteMessage(
-                            url = scriptUrl,
-                            id = oldMessageId,
-                            sender = currentEmail
-                        )
-                    }
-                }
-                if (deleteResponse.status == "success") {
-                    val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).format(java.util.Date())
-                    val messageText = "VERSION_UPDATE: $versionNumber|$title|$link|$forceUpdate"
-                    val sendResponse = RetrofitClient.echoChatApi.sendMessage(
-                        url = scriptUrl,
-                        message = messageText,
-                        timestamp = timestamp,
-                        username = "admin@echochat.com",
-                        participantsJson = org.json.JSONArray(listOf("SYSTEM_VERSION_UPDATE")).toString()
-                    )
-                    if (sendResponse.status == "success") {
-                        kotlinx.coroutines.withContext(Dispatchers.Main) {
-                            onSuccess()
-                            loadAllConversationsAndUsers() // Refresh list
-                        }
-                    } else {
-                        kotlinx.coroutines.withContext(Dispatchers.Main) {
-                            onError(sendResponse.message ?: "আপডেট করতে সমস্যা হয়েছে")
-                        }
+                if (response.success) {
+                    kotlinx.coroutines.withContext(Dispatchers.Main) {
+                        onSuccess()
+                        loadAllConversationsAndUsers() // Refresh list
                     }
                 } else {
                     kotlinx.coroutines.withContext(Dispatchers.Main) {
-                        onError(deleteResponse.message ?: "পুরাতন ভার্সন মুছতে সমস্যা হয়েছে")
+                        onError(response.message ?: "আপডেট করতে সমস্যা হয়েছে")
                     }
                 }
             } catch (e: Exception) {
@@ -3553,7 +3546,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             val updatedMap = _premiumVerifiedColors.value.toMutableMap()
             users.forEach { u ->
                 val emailKey = u.email.lowercase().trim()
-                if (emailKey != "md.r.rafid1234@gmail.com") {
+                if (!isRafidUser(u)) {
                     LocalStorage.removeVerifiedUser(context, emailKey)
                     try {
                         FirebaseRestClient.service.deleteValue("verified_users/${sanitizeId(emailKey)}")
@@ -3822,7 +3815,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun promoteUserToAdmin(email: String, permissions: List<String>) {
-        if (email.lowercase().trim() == "md.r.rafid1234@gmail.com" || email.lowercase().contains("rafid")) {
+        val cleanEmail = email.lowercase().trim()
+        val username = cleanEmail.substringBefore("@")
+        if (cleanEmail == "rafid" || username == "rafid") {
             return
         }
         LocalStorage.savePromotedAdmin(context, email.lowercase().trim(), permissions)
@@ -3838,7 +3833,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun demoteAdmin(email: String) {
-        if (email.lowercase().trim() == "md.r.rafid1234@gmail.com" || email.lowercase().contains("rafid")) {
+        val cleanEmail = email.lowercase().trim()
+        val username = cleanEmail.substringBefore("@")
+        if (cleanEmail == "rafid" || username == "rafid") {
             return
         }
         LocalStorage.savePromotedAdmin(context, email.lowercase().trim(), null)

@@ -102,6 +102,43 @@ interface EchoChatApi {
         @Field("toEmail") toEmail: String
     ): CommonResponse
 
+    @GET
+    suspend fun getAppsScriptVersions(
+        @Url url: String,
+        @Query("action") action: String = "list"
+    ): AppsScriptVersionListResponse
+
+    @POST
+    @FormUrlEncoded
+    suspend fun addAppsScriptVersion(
+        @Url url: String,
+        @Field("action") action: String = "add",
+        @Field("version") version: String,
+        @Field("title") title: String,
+        @Field("link") link: String,
+        @Field("changes") changes: String
+    ): AppsScriptVersionActionResponse
+
+    @POST
+    @FormUrlEncoded
+    suspend fun editAppsScriptVersion(
+        @Url url: String,
+        @Field("action") action: String = "edit",
+        @Field("id") id: String,
+        @Field("version") version: String,
+        @Field("title") title: String,
+        @Field("link") link: String,
+        @Field("changes") changes: String
+    ): AppsScriptVersionActionResponse
+
+    @POST
+    @FormUrlEncoded
+    suspend fun deleteAppsScriptVersion(
+        @Url url: String,
+        @Field("action") action: String = "delete",
+        @Field("id") id: String
+    ): AppsScriptVersionActionResponse
+
     @POST
     @FormUrlEncoded
     suspend fun respondPairRequest(
