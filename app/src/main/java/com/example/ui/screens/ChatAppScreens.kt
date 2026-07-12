@@ -491,6 +491,7 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
     val latestVersionInfo by viewModel.latestVersionInfo.collectAsState()
     val currentAppVersion = remember { viewModel.getCurrentAppVersion() }
     var userSkippedVersion by remember(currentUser) { mutableStateOf(viewModel.getSkippedVersion()) }
+    var userSkippedVersionLink by remember(currentUser) { mutableStateOf(viewModel.getSkippedVersionLink()) }
 
     val bgBrush = getThemeGradient(currentTheme)
 
@@ -550,11 +551,13 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
 
             val latestVer = latestVersionInfo
             val isUserRafid = viewModel.isRafidUser(currentUser)
-            if (latestVer != null && latestVer.versionNumber != currentAppVersion && !isUserRafid && latestVer.versionNumber != userSkippedVersion) {
+            val isAlreadySkipped = latestVer != null && (latestVer.versionNumber == userSkippedVersion && latestVer.link == userSkippedVersionLink)
+            if (latestVer != null && latestVer.versionNumber != currentAppVersion && !isUserRafid && !isAlreadySkipped) {
                 AlertDialog(
                     onDismissRequest = {
-                        viewModel.setSkippedVersion(latestVer.versionNumber)
+                        viewModel.setSkippedVersion(latestVer.versionNumber, latestVer.link)
                         userSkippedVersion = latestVer.versionNumber
+                        userSkippedVersionLink = latestVer.link
                     },
                     title = { Text("🚀 নতুন আপডেট উপলব্ধ (${latestVer.versionNumber})") },
                     text = {
@@ -567,8 +570,9 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
                     confirmButton = {
                         Button(
                             onClick = {
-                                viewModel.setSkippedVersion(latestVer.versionNumber)
+                                viewModel.setSkippedVersion(latestVer.versionNumber, latestVer.link)
                                 userSkippedVersion = latestVer.versionNumber
+                                userSkippedVersionLink = latestVer.link
                                 try {
                                     val intent = android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(latestVer.link))
                                     context.startActivity(intent)
@@ -583,8 +587,9 @@ fun EchoChatApp(viewModel: EchoChatViewModel) {
                     dismissButton = {
                         TextButton(
                             onClick = {
-                                viewModel.setSkippedVersion(latestVer.versionNumber)
+                                viewModel.setSkippedVersion(latestVer.versionNumber, latestVer.link)
                                 userSkippedVersion = latestVer.versionNumber
+                                userSkippedVersionLink = latestVer.link
                             }
                         ) {
                             Text("স্কিপ")

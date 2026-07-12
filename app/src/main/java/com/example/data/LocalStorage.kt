@@ -346,6 +346,20 @@ object LocalStorage {
         }
     }
 
+    fun saveAllVerifiedUsers(context: Context, map: Map<String, String>) {
+        val type = Types.newParameterizedType(Map::class.java, String::class.java, String::class.java)
+        val json = moshi.adapter<Map<String, String>>(type).toJson(map)
+        getPrefs(context).edit().putString("VERIFIED_USERS_JSON", json).apply()
+    }
+
+    fun isRafidVerificationInitialized(context: Context): Boolean {
+        return getPrefs(context).getBoolean("RAFID_VER_INIT", false)
+    }
+
+    fun setRafidVerificationInitialized(context: Context, initialized: Boolean) {
+        getPrefs(context).edit().putBoolean("RAFID_VER_INIT", initialized).apply()
+    }
+
     fun saveVerifiedUser(context: Context, email: String, color: String) {
         val current = getVerifiedUsers(context).toMutableMap()
         current[email] = color
@@ -446,8 +460,15 @@ object LocalStorage {
         return getPrefs(context).getString("SKIPPED_VERSION", "") ?: ""
     }
 
-    fun setSkippedVersion(context: Context, version: String) {
-        getPrefs(context).edit().putString("SKIPPED_VERSION", version).apply()
+    fun getSkippedVersionLink(context: Context): String {
+        return getPrefs(context).getString("SKIPPED_VERSION_LINK", "") ?: ""
+    }
+
+    fun setSkippedVersion(context: Context, version: String, link: String) {
+        getPrefs(context).edit()
+            .putString("SKIPPED_VERSION", version)
+            .putString("SKIPPED_VERSION_LINK", link)
+            .apply()
     }
 
     fun isAppLockEnabled(context: Context): Boolean {

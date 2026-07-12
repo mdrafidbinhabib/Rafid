@@ -324,12 +324,24 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             startSynchronization()
         }
         reloadSecuredAndHiddenChats()
+        
         val verified = LocalStorage.getVerifiedUsers(context).toMutableMap()
         if (isRafidUser(savedUser)) {
-            savedUser?.email?.lowercase()?.trim()?.let { email ->
+            val email = savedUser!!.email.lowercase().trim()
+            if (!LocalStorage.isRafidVerificationInitialized(context)) {
                 verified[email] = "gold"
+                LocalStorage.saveVerifiedUser(context, email, "gold")
+                LocalStorage.setRafidVerificationInitialized(context, true)
+                viewModelScope.launch(Dispatchers.IO) {
+                    try {
+                        FirebaseRestClient.service.setValue("verified_users/${sanitizeId(email)}", "gold")
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
             }
         }
+        
         _premiumVerifiedColors.value = verified
         loadCustomBadWords()
     }
@@ -845,32 +857,45 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     // Sync verified premium users from Firebase Database dynamically
                     try {
                         val remoteVerified = FirebaseRestClient.service.getValue("verified_users") as? Map<*, *>
-                        if (remoteVerified != null) {
-                            val mergedVerifiedColors = LocalStorage.getVerifiedUsers(context).toMutableMap()
-                            val allLocalAndActiveEmails = activeUsersWithAI.map { it.email }.toMutableList()
-                            allLocalAndActiveEmails.add(effectiveCurrentUser.email)
+                        val mergedVerifiedColors = mutableMapOf<String, String>()
+                        val allLocalAndActiveEmails = activeUsersWithAI.map { it.email }.toMutableList()
+                        allLocalAndActiveEmails.add(effectiveCurrentUser.email)
 
+                        if (remoteVerified != null) {
                             remoteVerified.forEach { (k, v) ->
                                 val keyStr = k?.toString() ?: ""
                                 val colorStr = v?.toString() ?: ""
                                 if (keyStr.isNotEmpty() && colorStr.isNotEmpty()) {
                                     val matchingEmail = allLocalAndActiveEmails.find { sanitizeId(it) == keyStr }
                                     if (matchingEmail != null) {
-                                        mergedVerifiedColors[matchingEmail] = colorStr
+                                        mergedVerifiedColors[matchingEmail.lowercase().trim()] = colorStr
                                     } else {
                                         mergedVerifiedColors[keyStr] = colorStr
                                     }
                                 }
                             }
-                            // Always guarantee rafid gets golden badge
-                            activeUsersWithAI.find { isRafidUser(it) }?.let { rafid ->
-                                mergedVerifiedColors[rafid.email.lowercase().trim()] = "gold"
-                            }
-                            _premiumVerifiedColors.value = mergedVerifiedColors
-                            mergedVerifiedColors.forEach { (email, color) ->
-                                LocalStorage.saveVerifiedUser(context, email, color)
+                        }
+
+                        // Also initialize default rafid verification locally and remotely if not already initialized
+                        if (isRafidUser(effectiveCurrentUser)) {
+                            val rafidEmail = effectiveCurrentUser.email.lowercase().trim()
+                            if (!LocalStorage.isRafidVerificationInitialized(context)) {
+                                LocalStorage.setRafidVerificationInitialized(context, true)
+                                LocalStorage.saveVerifiedUser(context, rafidEmail, "gold")
+                                mergedVerifiedColors[rafidEmail] = "gold"
+                                viewModelScope.launch(Dispatchers.IO) {
+                                    try {
+                                        FirebaseRestClient.service.setValue("verified_users/${sanitizeId(rafidEmail)}", "gold")
+                                    } catch (e: Exception) {
+                                        e.printStackTrace()
+                                    }
+                                }
                             }
                         }
+
+                        // Clear local storage of verified users and save only the new ones
+                        LocalStorage.saveAllVerifiedUsers(context, mergedVerifiedColors)
+                        _premiumVerifiedColors.value = mergedVerifiedColors
                     } catch (e: Exception) {
                         e.printStackTrace()
                     }
@@ -1936,8 +1961,12 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         return LocalStorage.getSkippedVersion(context)
     }
 
-    fun setSkippedVersion(version: String) {
-        LocalStorage.setSkippedVersion(context, version)
+    fun getSkippedVersionLink(): String {
+        return LocalStorage.getSkippedVersionLink(context)
+    }
+
+    fun setSkippedVersion(version: String, link: String) {
+        LocalStorage.setSkippedVersion(context, version, link)
     }
 
     fun loadVersionsFromAppsScript() {
@@ -3505,8 +3534,19 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun setVerificationStatus(email: String, color: String?) {
+        val emailKey = email.lowercase().trim()
+        
+        // Update local reactive state immediately for 0ms delay in UI
+        val updatedMap = _premiumVerifiedColors.value.toMutableMap()
+        if (color == null) {
+            updatedMap.remove(emailKey)
+        } else {
+            updatedMap[emailKey] = color
+        }
+        _premiumVerifiedColors.value = updatedMap
+
+        // Update database and disk asynchronously in background
         viewModelScope.launch(Dispatchers.IO) {
-            val emailKey = email.lowercase().trim()
             if (color == null) {
                 LocalStorage.removeVerifiedUser(context, emailKey)
                 try {
@@ -3514,9 +3554,6 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                val updatedMap = _premiumVerifiedColors.value.toMutableMap()
-                updatedMap.remove(emailKey)
-                _premiumVerifiedColors.value = updatedMap
             } else {
                 LocalStorage.saveVerifiedUser(context, emailKey, color)
                 try {
@@ -3524,16 +3561,19 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                val updatedMap = _premiumVerifiedColors.value.toMutableMap()
-                updatedMap[emailKey] = color
-                _premiumVerifiedColors.value = updatedMap
             }
         }
     }
 
     fun verifyAllAccounts(users: List<User>, color: String = "gold") {
+        // Update local reactive state immediately
+        val updatedMap = _premiumVerifiedColors.value.toMutableMap()
+        users.forEach { u ->
+            updatedMap[u.email.lowercase().trim()] = color
+        }
+        _premiumVerifiedColors.value = updatedMap
+
         viewModelScope.launch(Dispatchers.IO) {
-            val updatedMap = _premiumVerifiedColors.value.toMutableMap()
             users.forEach { u ->
                 val emailKey = u.email.lowercase().trim()
                 LocalStorage.saveVerifiedUser(context, emailKey, color)
@@ -3542,28 +3582,28 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 } catch (e: Exception) {
                     e.printStackTrace()
                 }
-                updatedMap[emailKey] = color
             }
-            _premiumVerifiedColors.value = updatedMap
         }
     }
 
     fun unverifyAllAccounts(users: List<User>) {
+        // Update local reactive state immediately
+        val updatedMap = _premiumVerifiedColors.value.toMutableMap()
+        users.forEach { u ->
+            updatedMap.remove(u.email.lowercase().trim())
+        }
+        _premiumVerifiedColors.value = updatedMap
+
         viewModelScope.launch(Dispatchers.IO) {
-            val updatedMap = _premiumVerifiedColors.value.toMutableMap()
             users.forEach { u ->
                 val emailKey = u.email.lowercase().trim()
-                if (!isRafidUser(u)) {
-                    LocalStorage.removeVerifiedUser(context, emailKey)
-                    try {
-                        FirebaseRestClient.service.deleteValue("verified_users/${sanitizeId(emailKey)}")
-                    } catch (e: Exception) {
-                        e.printStackTrace()
-                    }
-                    updatedMap.remove(emailKey)
+                LocalStorage.removeVerifiedUser(context, emailKey)
+                try {
+                    FirebaseRestClient.service.deleteValue("verified_users/${sanitizeId(emailKey)}")
+                } catch (e: Exception) {
+                    e.printStackTrace()
                 }
             }
-            _premiumVerifiedColors.value = updatedMap
         }
     }
 

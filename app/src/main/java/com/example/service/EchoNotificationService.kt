@@ -528,7 +528,8 @@ class EchoNotificationService : Service() {
             .build()
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        notificationManager.notify(content.hashCode() + title.hashCode(), notification)
+        val uniqueId = (System.currentTimeMillis() % 100000000).toInt() + java.util.Random().nextInt(1000)
+        notificationManager.notify(uniqueId, notification)
     }
 
     private fun sanitizeId(email: String): String {
