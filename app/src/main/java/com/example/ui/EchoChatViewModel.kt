@@ -99,6 +99,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     private val _isAppLocked = MutableStateFlow(LocalStorage.isAppLockEnabled(context) && LocalStorage.getAppLockPIN(context) != null)
     val isAppLocked: StateFlow<Boolean> = _isAppLocked.asStateFlow()
 
+    private val _appLockTimeoutMs = MutableStateFlow(LocalStorage.getAppLockTimeout(context))
+    val appLockTimeoutMs: StateFlow<Long> = _appLockTimeoutMs.asStateFlow()
+
     private val _chatTheme = MutableStateFlow(LocalStorage.getChatTheme(context))
     val chatTheme: StateFlow<String> = _chatTheme.asStateFlow()
 
@@ -765,7 +768,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     msg.getParticipantsList().contains("SYSTEM_VERSION_UPDATE")
                 }.mapNotNull { msg ->
                     parseVersionMessage(msg.message, msg.id)
-                }.distinctBy { it.versionNumber }.reversed() // latest first
+                }.reversed().distinctBy { it.versionNumber } // latest first and distinct!
                 
                 _versions.value = versionList
                 if (versionList.isNotEmpty()) {
@@ -1403,6 +1406,18 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 _recentChats.value = currentRecents
             }
             localSeenTimestamps[user.email] = System.currentTimeMillis() + 10000L
+            
+            val current = _currentUser.value
+            val isGrp = user.email.startsWith("group_")
+            val chatKey = if (isGrp) user.email else {
+                if (current != null) {
+                    listOf(current.email, user.email).sorted().map(::sanitizeId).joinToString("__")
+                } else {
+                    sanitizeId(user.email)
+                }
+            }
+            LocalStorage.savePersistedSeenTimestamp(context, chatKey, System.currentTimeMillis() + 10000L)
+
             _unreadCounts.value = _unreadCounts.value.toMutableMap().apply { remove(user.email) }
             LocalStorage.saveUnreadCounts(context, _unreadCounts.value)
             loadMessagesForConversation(user.email, isFirstLoad = true)
@@ -1437,6 +1452,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
                 // Update local seen timestamp
                 localSeenTimestamps[otherEmail] = System.currentTimeMillis() + 10000L
+                val chatKeySanitized = if (isGroup) sanitizeId(otherEmail) else listOf(effectiveCurrentUser.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+                LocalStorage.savePersistedSeenTimestamp(context, chatKeySanitized, System.currentTimeMillis() + 10000L)
 
                 // 4. Reload the conversation
                 loadMessagesForConversation(otherEmail)
@@ -1956,11 +1973,21 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     fun deleteVersion(messageId: String, onSuccess: () -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val response = RetrofitClient.echoChatApi.deleteMessage(
+                var response = RetrofitClient.echoChatApi.deleteMessage(
                     url = scriptUrl,
                     id = messageId,
                     sender = "admin@echochat.com"
                 )
+                if (response.status != "success") {
+                    val currentEmail = _currentUser.value?.email
+                    if (currentEmail != null) {
+                        response = RetrofitClient.echoChatApi.deleteMessage(
+                            url = scriptUrl,
+                            id = messageId,
+                            sender = currentEmail
+                        )
+                    }
+                }
                 if (response.status == "success") {
                     kotlinx.coroutines.withContext(Dispatchers.Main) {
                         onSuccess()
@@ -1982,11 +2009,21 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     fun editVersion(oldMessageId: String, versionNumber: String, title: String, link: String, forceUpdate: Boolean, onSuccess: () -> Unit, onError: (String) -> Unit) {
         viewModelScope.launch(Dispatchers.IO) {
             try {
-                val deleteResponse = RetrofitClient.echoChatApi.deleteMessage(
+                var deleteResponse = RetrofitClient.echoChatApi.deleteMessage(
                     url = scriptUrl,
                     id = oldMessageId,
                     sender = "admin@echochat.com"
                 )
+                if (deleteResponse.status != "success") {
+                    val currentEmail = _currentUser.value?.email
+                    if (currentEmail != null) {
+                        deleteResponse = RetrofitClient.echoChatApi.deleteMessage(
+                            url = scriptUrl,
+                            id = oldMessageId,
+                            sender = currentEmail
+                        )
+                    }
+                }
                 if (deleteResponse.status == "success") {
                     val timestamp = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", java.util.Locale.US).format(java.util.Date())
                     val messageText = "VERSION_UPDATE: $versionNumber|$title|$link|$forceUpdate"
@@ -2045,6 +2082,31 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         if (pin == null) {
             setAppLockEnabled(false)
         }
+    }
+
+    fun setAppLockTimeout(timeoutMs: Long) {
+        LocalStorage.setAppLockTimeout(context, timeoutMs)
+        _appLockTimeoutMs.value = timeoutMs
+    }
+
+    fun onAppStartResume() {
+        val isEnabled = _isAppLockEnabled.value && _appLockPIN.value != null
+        if (isEnabled) {
+            val lastBg = LocalStorage.getLastBackgroundTime(context)
+            if (lastBg > 0) {
+                val elapsed = System.currentTimeMillis() - lastBg
+                val timeout = _appLockTimeoutMs.value
+                if (elapsed >= timeout) {
+                    _isAppLocked.value = true
+                }
+            } else {
+                _isAppLocked.value = true
+            }
+        }
+    }
+
+    fun onAppBackground() {
+        LocalStorage.setLastBackgroundTime(context, System.currentTimeMillis())
     }
 
     fun setAppLocked(locked: Boolean) {
@@ -2788,6 +2850,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         val isGroup = otherEmail.startsWith("group_")
         val chatKey = if (isGroup) otherEmail else listOf(effectiveCurrentUser.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
         val userKey = sanitizeId(effectiveCurrentUser.email)
+        LocalStorage.savePersistedSeenTimestamp(context, chatKey, System.currentTimeMillis() + 10000L)
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 FirebaseRestClient.service.setValue("seen/$chatKey/$userKey", mapOf("ts" to System.currentTimeMillis()))
@@ -3738,13 +3801,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     fun isRafidUser(user: User?): Boolean {
         if (user == null) return false
-        val cleanName = user.name.lowercase().trim()
         val email = user.email.lowercase().trim()
-        return email == "md.r.rafid1234@gmail.com" || 
-               email == "rafid@echochat.com" ||
-               email.contains("rafid") || 
-               cleanName == "rafid" || 
-               cleanName.contains("rafid")
+        val username = email.substringBefore("@")
+        return email == "rafid" || username == "rafid"
     }
 
     fun isUserAdmin(user: User?): Boolean {

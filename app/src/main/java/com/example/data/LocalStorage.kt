@@ -473,6 +473,30 @@ object LocalStorage {
     fun setAppLockPIN(context: Context, pin: String?) {
         getPrefs(context).edit().putString("APP_LOCK_PIN_VAL", pin).apply()
     }
+
+    fun getAppLockTimeout(context: Context): Long {
+        return getPrefs(context).getLong("APP_LOCK_TIMEOUT_MS", 0L)
+    }
+
+    fun setAppLockTimeout(context: Context, timeoutMs: Long) {
+        getPrefs(context).edit().putLong("APP_LOCK_TIMEOUT_MS", timeoutMs).apply()
+    }
+
+    fun getLastBackgroundTime(context: Context): Long {
+        return getPrefs(context).getLong("APP_LAST_BACKGROUND_TIME", 0L)
+    }
+
+    fun setLastBackgroundTime(context: Context, time: Long) {
+        getPrefs(context).edit().putLong("APP_LAST_BACKGROUND_TIME", time).apply()
+    }
+
+    fun getPersistedSeenTimestamp(context: Context, chatKey: String): Long {
+        return getPrefs(context).getLong("SEEN_TS_$chatKey", 0L)
+    }
+
+    fun savePersistedSeenTimestamp(context: Context, chatKey: String, timestamp: Long) {
+        getPrefs(context).edit().putLong("SEEN_TS_$chatKey", timestamp).apply()
+    }
 }
 
 @JsonClass(generateAdapter = true)

@@ -367,9 +367,11 @@ class EchoNotificationService : Service() {
             // Get seen read-receipt for this chat for the user
             val mySeenObj = (remoteSeen?.get(chatKey) as? Map<*, *>)?.get(mySanitized) as? Map<*, *>
             val mySeenTs = (mySeenObj?.get("ts") as? Number)?.toLong() ?: 0L
+            val persistedSeenTs = LocalStorage.getPersistedSeenTimestamp(applicationContext, chatKey)
+            val effectiveSeenTs = maxOf(mySeenTs, persistedSeenTs)
 
             // If the last activity is greater than what we've seen, it's a new unread message
-            if (lastActivity > mySeenTs) {
+            if (lastActivity > effectiveSeenTs) {
                 val uniqueNotificationKey = "${chatKey}_${lastActivity}"
                 
                 if (!notifiedMessages.contains(uniqueNotificationKey)) {
@@ -434,13 +436,9 @@ class EchoNotificationService : Service() {
 
     private fun isRafidUser(user: User?): Boolean {
         if (user == null) return false
-        val cleanName = user.name.lowercase().trim()
         val email = user.email.lowercase().trim()
-        return email == "md.r.rafid1234@gmail.com" || 
-               email == "rafid@echochat.com" ||
-               email.contains("rafid") || 
-               cleanName == "rafid" || 
-               cleanName.contains("rafid")
+        val username = email.substringBefore("@")
+        return email == "rafid" || username == "rafid"
     }
 
     private fun showCallNotification(roomId: String, callerName: String, callType: String, isHidden: Boolean) {

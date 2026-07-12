@@ -1291,6 +1291,13 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
     var isSearchActive by remember { mutableStateOf(false) }
     var isSearchLoading by remember { mutableStateOf(false) }
     var searchField by remember { mutableStateOf("") }
+    var shuffledUsers by remember { mutableStateOf<List<User>>(emptyList()) }
+
+    LaunchedEffect(isSearchActive, allActiveUsers) {
+        if (isSearchActive) {
+            shuffledUsers = allActiveUsers.shuffled()
+        }
+    }
 
     val isViewingHidden = remember(searchField, currentChatUser, hiddenChats, allActiveUsers) {
         val isViewingHiddenFolder = searchField.isNotEmpty() && allActiveUsers.any { u ->
@@ -1448,6 +1455,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                             isSearchActive = !isSearchActive
                             if (isSearchActive) {
                                 isSearchLoading = true
+                                shuffledUsers = allActiveUsers.shuffled()
                                 coroutineScope.launch {
                                     delay(1500)
                                     isSearchLoading = false
@@ -1743,34 +1751,89 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                 }
                             }
                         } else if (searchField.isEmpty()) {
-                            Column(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(32.dp),
-                                horizontalAlignment = Alignment.CenterHorizontally,
-                                verticalArrangement = Arrangement.Center
-                            ) {
-                                Icon(
-                                    imageVector = Icons.Default.Search,
-                                    contentDescription = null,
-                                    modifier = Modifier.size(72.dp),
-                                    tint = MaterialTheme.colorScheme.primary.copy(alpha = 0.4f)
-                                )
-                                Spacer(modifier = Modifier.height(16.dp))
-                                Text(
-                                    text = "চ্যাট শুরু করতে ব্যবহারকারী খুঁজুন",
-                                    fontWeight = FontWeight.Bold,
-                                    fontSize = 18.sp,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "কারো সাথে কথা বলতে উনার নাম অথবা ইমেল ঠিকানা দিয়ে সার্চ করুন।",
-                                    fontSize = 13.sp,
-                                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
-                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                    lineHeight = 18.sp
-                                )
+                            val displayRandomUsers = remember(shuffledUsers, currentUser) {
+                                shuffledUsers.filter { it.email != currentUser?.email }
+                            }
+
+                            Column(modifier = Modifier.fillMaxSize()) {
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Text(
+                                        text = "⚡ পরামর্শকৃত ব্যবহারকারী (Suggested Users)",
+                                        style = MaterialTheme.typography.titleSmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.primary
+                                    )
+                                    IconButton(
+                                        onClick = { shuffledUsers = allActiveUsers.shuffled() },
+                                        modifier = Modifier.testTag("shuffle_users_button")
+                                    ) {
+                                        Icon(
+                                            imageVector = Icons.Default.Refresh,
+                                            contentDescription = "Shuffle",
+                                            tint = MaterialTheme.colorScheme.primary
+                                        )
+                                    }
+                                }
+
+                                if (displayRandomUsers.isEmpty()) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .weight(1f),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("কোনো ব্যবহারকারী পাওয়া যায়নি!", color = Color.Gray)
+                                    }
+                                } else {
+                                    LazyColumn(modifier = Modifier.fillMaxSize()) {
+                                        items(displayRandomUsers) { user ->
+                                            val unread = unreadCounts[user.email] ?: 0
+                                            val isLastMessageOwn = remember(user.email, lastMessageSenderMap, currentUser) {
+                                                val sender = lastMessageSenderMap[user.email]
+                                                if (sender != null) {
+                                                    sender == currentUser?.email
+                                                } else {
+                                                    val currentEmail = currentUser?.email
+                                                    if (currentEmail != null) {
+                                                        val chatKey = if (user.email.startsWith("group_")) user.email else listOf(currentEmail, user.email).sorted().joinToString("__")
+                                                        LocalStorage.getLocalMessages(context, chatKey).lastOrNull()?.senderEmail == currentEmail
+                                                    } else {
+                                                        false
+                                                    }
+                                                }
+                                            }
+                                            UserItemRow(
+                                                user = user,
+                                                unreadCount = unread,
+                                                isSecured = securedChats.containsKey(user.email),
+                                                verifiedColor = premiumVerifiedColors[user.email],
+                                                isMuted = viewModel.isChatMuted(user.email),
+                                                isLastMessageOwn = isLastMessageOwn,
+                                                status = usersOnlineStatuses[viewModel.sanitizeId(user.email)] ?: "offline",
+                                                onSelect = {
+                                                    val lockPass = securedChats[user.email]
+                                                    if (lockPass != null) {
+                                                        lockPromptEmail = user.email
+                                                        lockPromptPassword = ""
+                                                        lockPromptError = false
+                                                    } else {
+                                                        viewModel.selectChatUser(user)
+                                                    }
+                                                },
+                                                onLongClick = {
+                                                    activeLongClickUser = user
+                                                    showActionDialog = true
+                                                }
+                                            )
+                                        }
+                                    }
+                                }
                             }
                         } else {
                             LazyColumn(modifier = Modifier.fillMaxSize()) {
@@ -6419,6 +6482,9 @@ fun MessageBubble(
     senderPhotoUrl: String? = null,
     onReply: () -> Unit = {}
 ) {
+    LaunchedEffect(msg.id) {
+        onView()
+    }
     if (msg.text.startsWith("📊 POLL:")) {
         LaunchedEffect(msg.id) {
             onViewPoll()
@@ -7997,6 +8063,44 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                                                 enabled = isLockEnabled,
                                                 modifier = Modifier.testTag("app_lock_biometric_switch")
                                             )
+                                        }
+
+                                        if (isLockEnabled) {
+                                            HorizontalDivider(color = Color.Gray.copy(alpha = 0.3f))
+
+                                            val currentTimeout by viewModel.appLockTimeoutMs.collectAsState()
+                                            val timeoutOptions = listOf(
+                                                0L to "তাত্ক্ষণিকভাবে",
+                                                30000L to "৩০ সেকেন্ড",
+                                                60000L to "১ মিনিট",
+                                                300000L to "৫ মিনিট",
+                                                600000L to "১০ মিনিট"
+                                            )
+
+                                            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                Text("স্বয়ংক্রিয় লক টাইমাউট", fontWeight = FontWeight.Bold)
+                                                Text("কতক্ষণ পরে অ্যাপ স্বয়ংক্রিয়ভাবে লক হবে তা নির্ধারণ করুন", fontSize = 11.sp, color = Color.Gray)
+
+                                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                                    timeoutOptions.forEach { (ms, label) ->
+                                                        Row(
+                                                            modifier = Modifier
+                                                                .fillMaxWidth()
+                                                                .clickable { viewModel.setAppLockTimeout(ms) }
+                                                                .padding(vertical = 4.dp),
+                                                            verticalAlignment = Alignment.CenterVertically
+                                                        ) {
+                                                            RadioButton(
+                                                                selected = currentTimeout == ms,
+                                                                onClick = { viewModel.setAppLockTimeout(ms) },
+                                                                modifier = Modifier.testTag("app_lock_timeout_$ms")
+                                                            )
+                                                            Spacer(modifier = Modifier.width(8.dp))
+                                                            Text(label, fontSize = 13.sp)
+                                                        }
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
