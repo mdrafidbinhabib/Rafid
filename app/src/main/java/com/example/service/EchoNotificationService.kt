@@ -25,7 +25,7 @@ class EchoNotificationService : Service() {
     private val scriptUrl = "https://script.google.com/macros/s/AKfycbzvqNxH0BGFuXbIvJPMDR6uqUkWvekQvS8asurlYnRoT23lMCZq9NLmLoO4ohje_3Otbg/exec"
 
     private val notifiedCalls = mutableSetOf<String>()
-    private val notifiedMessages = mutableSetOf<String>()
+    private val notifiedMessagesByUser = java.util.concurrent.ConcurrentHashMap<String, MutableSet<String>>()
     private var isFirstMessagePoll = true
     private var serviceWakeLock: PowerManager.WakeLock? = null
 
@@ -38,13 +38,6 @@ class EchoNotificationService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        
-        // Load notified messages from storage
-        try {
-            notifiedMessages.addAll(LocalStorage.getNotifiedMessageIds(applicationContext))
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
         
         // Acquire CPU wake lock to ensure polling works even when screen is off / locked
         try {
@@ -293,6 +286,10 @@ class EchoNotificationService : Service() {
         val myEmail = user.email.lowercase().trim()
         val mySanitized = sanitizeId(myEmail)
         
+        val userNotifiedSet = notifiedMessagesByUser.getOrPut(myEmail) {
+            java.util.Collections.synchronizedSet(LocalStorage.getNotifiedMessageIds(applicationContext).toMutableSet())
+        }
+
         // Refresh our user registry of email to names
         refreshUserRegistry()
 
@@ -393,8 +390,14 @@ class EchoNotificationService : Service() {
                 return@forEach
             }
 
+            val chatKeySanitized = if (chatKey.contains("__")) {
+                chatKey.split("__").map { sanitizeId(it) }.sorted().joinToString("__")
+            } else {
+                sanitizeId(chatKey)
+            }
+
             // Get seen read-receipt for this chat for the user
-            val mySeenObj = (remoteSeen?.get(chatKey) as? Map<*, *>)?.get(mySanitized) as? Map<*, *>
+            val mySeenObj = (remoteSeen?.get(chatKeySanitized) as? Map<*, *>)?.get(mySanitized) as? Map<*, *>
             val mySeenTs = (mySeenObj?.get("ts") as? Number)?.toLong() ?: 0L
             val persistedSeenTs = LocalStorage.getPersistedSeenTimestamp(applicationContext, chatKey)
             val effectiveSeenTs = maxOf(mySeenTs, persistedSeenTs)
@@ -403,16 +406,16 @@ class EchoNotificationService : Service() {
             if (lastActivity > effectiveSeenTs) {
                 val uniqueNotificationKey = "${chatKey}_${lastActivity}"
                 
-                if (!notifiedMessages.contains(uniqueNotificationKey)) {
+                if (!userNotifiedSet.contains(uniqueNotificationKey)) {
                     // Mark as notified so we don't trigger again
-                    notifiedMessages.add(uniqueNotificationKey)
+                    userNotifiedSet.add(uniqueNotificationKey)
                     LocalStorage.addNotifiedMessageId(applicationContext, uniqueNotificationKey)
 
                     val ageMs = Math.abs(System.currentTimeMillis() - lastActivity)
                     
                     // Only display notification if this is NOT the very first poll,
-                    // AND the message is relatively new (sent within the last 10 minutes)
-                    if (!isFirstPoll && ageMs < 600000) {
+                    // AND the message is relatively new (sent within the last 24 hours)
+                    if (!isFirstPoll && ageMs < 86400000) {
                         // Check if muted
                         val isChatMuted = isMuted(lastSender, mutedChats)
                         if (isChatMuted) {
@@ -456,7 +459,7 @@ class EchoNotificationService : Service() {
                         }
 
                         val isSenderHidden = hiddenChats.keys.any { sanitizeId(it).equals(sanitizeId(lastSender), ignoreCase = true) }
-                        showChatNotification(senderName, messageText, isHidden = isSenderHidden)
+                        showChatNotification(chatKey, senderName, messageText, isHidden = isSenderHidden)
                     }
                 }
             }
@@ -502,7 +505,7 @@ class EchoNotificationService : Service() {
         notificationManager.notify(roomId.hashCode(), notification)
     }
 
-    private fun showChatNotification(senderName: String, text: String, isHidden: Boolean) {
+    private fun showChatNotification(chatKey: String, senderName: String, text: String, isHidden: Boolean) {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -528,8 +531,8 @@ class EchoNotificationService : Service() {
             .build()
 
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        val uniqueId = (System.currentTimeMillis() % 100000000).toInt() + java.util.Random().nextInt(1000)
-        notificationManager.notify(uniqueId, notification)
+        val notificationId = Math.abs(chatKey.hashCode())
+        notificationManager.notify(notificationId, notification)
     }
 
     private fun sanitizeId(email: String): String {

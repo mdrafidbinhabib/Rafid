@@ -1102,6 +1102,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                         _unreadCounts.value = calculatedUnreads
                         LocalStorage.saveUnreadCounts(context, calculatedUnreads)
                     }
+                    syncAllConversationsOffline(effectiveCurrentUser)
                 } else {
                     if (_allUsers.value.isEmpty()) {
                         val mocks = getMockContactsList(current.name)
@@ -1115,6 +1116,119 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     _allUsers.value = mocks
                 }
                 _recentChats.value = emptyList()
+            }
+        }
+    }
+
+    private fun syncAllConversationsOffline(effectiveCurrentUser: User) {
+        val current = _currentUser.value ?: return
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val remoteLastActivity = try {
+                    FirebaseRestClient.service.getValue("conversations_last_activity") as? Map<*, *>
+                } catch (e: Exception) {
+                    null
+                } ?: return@launch
+                
+                val recentChatsList = _recentChats.value
+                val groupsList = _myGroups.value
+                val allChats = recentChatsList.map { it.email } + groupsList.map { it.email }
+                
+                allChats.forEach { otherEmail ->
+                    val isGrp = otherEmail.startsWith("group_")
+                    val chatKey = if (isGrp) otherEmail else listOf(effectiveCurrentUser.email, otherEmail).sorted().joinToString("__")
+                    val chatKeySanitized = if (isGrp) sanitizeId(otherEmail) else listOf(effectiveCurrentUser.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+                    
+                    val lastActivity = (remoteLastActivity[chatKeySanitized] as? Number)?.toLong() ?: 0L
+                    if (lastActivity <= 0) return@forEach
+                    
+                    val cachedLocal = LocalStorage.getLocalMessages(context, chatKey)
+                    val localLastTs = cachedLocal.lastOrNull()?.timestampMs ?: 0L
+                    
+                    if (lastActivity > localLastTs) {
+                        // Fetch new messages from Supabase
+                        val supabaseResult = try {
+                            SupabaseRestClient.service.getValue("messages/$chatKey") as? Map<*, *>
+                        } catch (e: Exception) {
+                            null
+                        }
+                        
+                        if (supabaseResult != null) {
+                            val parsedMessages = mutableListOf<ChatMessage>()
+                            supabaseResult.forEach { (key, value) ->
+                                val msgData = value as? Map<*, *> ?: return@forEach
+                                val id = msgData["id"] as? String ?: key.toString()
+                                val sender = msgData["sender"] as? String ?: ""
+                                val text = msgData["text"] as? String ?: ""
+                                val timestamp = (msgData["timestamp"] as? Number)?.toLong() ?: System.currentTimeMillis()
+                                val isOwn = sender.lowercase() == current.email.lowercase() || sender.lowercase() == effectiveCurrentUser.email.lowercase()
+                                
+                                val replyToMap = msgData["replyTo"] as? Map<*, *>
+                                val replyTo = replyToMap?.let {
+                                    ReplyToData(
+                                        id = it["id"] as? String ?: "",
+                                        text = it["text"] as? String ?: "",
+                                        user = it["user"] as? String ?: ""
+                                    )
+                                }
+                                
+                                val isPoll = text.startsWith("📊 POLL:")
+                                val isImage = text.endsWith(".jpg") || text.endsWith(".png") || text.endsWith(".gif") || text.endsWith(".webp") || text.contains(".jpg?") || text.contains(".png?")
+                                
+                                val friendlyName = if (sender.lowercase() == current.email.lowercase()) {
+                                    current.name
+                                } else if (sender.lowercase() == effectiveCurrentUser.email.lowercase()) {
+                                    effectiveCurrentUser.name
+                                } else {
+                                    _allUsers.value.find { it.email.lowercase() == sender.lowercase() }?.name ?: sender.split("@")[0]
+                                }
+                                
+                                parsedMessages.add(
+                                    ChatMessage(
+                                        id = id,
+                                        senderName = friendlyName,
+                                        senderEmail = sender,
+                                        text = text,
+                                        timestampMs = timestamp,
+                                        replyTo = replyTo,
+                                        isOwn = isOwn,
+                                        isLocal = false,
+                                        isImage = isImage,
+                                        imageUrl = if (isImage) {
+                                            val urlRegex = "(https?://[^\\s]+)".toRegex()
+                                            urlRegex.find(text)?.value ?: ""
+                                        } else null,
+                                        isPoll = isPoll,
+                                        pollQuestion = if (isPoll) {
+                                            text.split("\n").getOrNull(0)?.replace("📊 POLL:", "")?.trim()
+                                        } else null,
+                                        pollOptions = if (isPoll) {
+                                            text.split("\n").drop(1).filter { it.isNotEmpty() }
+                                        } else emptyList()
+                                    )
+                                )
+                            }
+                            
+                            val deletedMap = try {
+                                FirebaseRestClient.service.getValue("deleted_messages/$chatKeySanitized") as? Map<*, *>
+                            } catch (e: Exception) {
+                                null
+                            }
+                            val deletedIds = deletedMap?.keys?.mapNotNull { it?.toString() }?.toSet() ?: emptySet()
+                            
+                            val filteredParsed = if (deletedIds.isNotEmpty()) {
+                                parsedMessages.filter { it.id !in deletedIds }
+                            } else {
+                                parsedMessages
+                            }
+                            
+                            val updatedLocal = (cachedLocal + filteredParsed).distinctBy { it.id }.sortedBy { it.timestampMs }
+                            LocalStorage.saveLocalMessages(context, chatKey, updatedLocal)
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
             }
         }
     }
@@ -1358,15 +1472,15 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                             val isDelivered = updatedMsg.id in deliveredMessageIds || partnerOnline == "online"
                             val status = if (updatedMsg.timestampMs <= partnerSeenTs) {
                                 "seen"
-                            } else if (updatedMsg.id in ownIdsOnServer) {
+                            } else if (updatedMsg.id !in ownIdsOnServer) {
+                                "delivered"
+                            } else {
                                 if (isDelivered) {
                                     saveDeliveredMessageId(updatedMsg.id)
                                     "delivered"
                                 } else {
                                     "sent"
                                 }
-                            } else {
-                                "seen"
                             }
                             updatedMsg.copy(deliveryStatus = status)
                         } else {
