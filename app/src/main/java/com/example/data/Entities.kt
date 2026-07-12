@@ -200,11 +200,11 @@ data class AppVersionInfo(
 @JsonClass(generateAdapter = true)
 data class AppsScriptVersionItem(
     val id: String,
-    val version: String,
-    val title: String,
-    val link: String,
-    val changes: String,
-    val date: String
+    val version: Any?,
+    val title: String? = null,
+    val link: String? = null,
+    val changes: String? = null,
+    val date: String? = null
 )
 
 @JsonClass(generateAdapter = true)

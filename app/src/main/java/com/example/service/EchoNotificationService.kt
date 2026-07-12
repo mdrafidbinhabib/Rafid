@@ -66,26 +66,55 @@ class EchoNotificationService : Service() {
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        // Keep running until explicitly stopped
+        startServiceInForeground()
         return START_STICKY
     }
 
     override fun onTaskRemoved(rootIntent: Intent?) {
         super.onTaskRemoved(rootIntent)
-        // Fire broadcast to EchoServiceRestartReceiver to restart the service when swiped away
-        val restartIntent = Intent(applicationContext, EchoServiceRestartReceiver::class.java)
-        val pendingIntent = PendingIntent.getBroadcast(
-            applicationContext,
-            1,
-            restartIntent,
-            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-        )
+        
         val alarmManager = getSystemService(Context.ALARM_SERVICE) as AlarmManager
+        
+        // 1. Direct Foreground Service Restart Intent (Highly reliable on API 26+)
         try {
+            val serviceIntent = Intent(applicationContext, EchoNotificationService::class.java)
+            val pendingServiceIntent = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                PendingIntent.getForegroundService(
+                    applicationContext,
+                    2,
+                    serviceIntent,
+                    PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+                )
+            } else {
+                PendingIntent.getService(
+                    applicationContext,
+                    2,
+                    serviceIntent,
+                    PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+                )
+            }
             alarmManager.set(
                 AlarmManager.RTC_WAKEUP,
                 System.currentTimeMillis() + 1000,
-                pendingIntent
+                pendingServiceIntent
+            )
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        // 2. Broadcast Receiver Fallback
+        try {
+            val restartIntent = Intent(applicationContext, EchoServiceRestartReceiver::class.java)
+            val pendingBroadcastIntent = PendingIntent.getBroadcast(
+                applicationContext,
+                1,
+                restartIntent,
+                PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+            )
+            alarmManager.set(
+                AlarmManager.RTC_WAKEUP,
+                System.currentTimeMillis() + 1500,
+                pendingBroadcastIntent
             )
         } catch (e: Exception) {
             e.printStackTrace()

@@ -1946,13 +1946,20 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 val res = RetrofitClient.echoChatApi.getAppsScriptVersions(versionScriptUrl)
                 if (res.success && res.data != null) {
                     val list = res.data.map { item ->
+                        val verStr = when (val v = item.version) {
+                            is Number -> {
+                                if (v.toDouble() % 1.0 == 0.0) v.toLong().toString() else v.toString()
+                            }
+                            is String -> v
+                            else -> v?.toString() ?: "1.0.0"
+                        }
                         AppVersionInfo(
-                            versionNumber = item.version,
-                            title = item.title,
-                            link = item.link,
-                            forceUpdate = item.changes.contains("force_update", ignoreCase = true),
+                            versionNumber = verStr,
+                            title = item.title ?: "",
+                            link = item.link ?: "",
+                            forceUpdate = item.changes?.contains("force_update", ignoreCase = true) == true,
                             messageId = item.id,
-                            changes = item.changes
+                            changes = item.changes ?: ""
                         )
                     }
                     kotlinx.coroutines.withContext(Dispatchers.Main) {

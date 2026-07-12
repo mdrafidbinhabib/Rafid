@@ -30,6 +30,7 @@
             android:name="com.example.service.EchoNotificationService"
             android:enabled="true"
             android:exported="false"
+            android:stopWithTask="false"
             android:foregroundServiceType="specialUse"
             tools:node="merge">
             <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" android:value="realtime_chat_polling_and_calling" />
