@@ -1822,7 +1822,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                                 } else {
                                                     val currentEmail = currentUser?.email
                                                     if (currentEmail != null) {
-                                                        val chatKey = if (user.email.startsWith("group_")) user.email else listOf(currentEmail, user.email).sorted().joinToString("__")
+                                                        val chatKey = if (user.email.startsWith("group_")) user.email else getNormalizedChatKeySanitized(currentEmail, user.email)
                                                         LocalStorage.getLocalMessages(context, chatKey).lastOrNull()?.senderEmail == currentEmail
                                                     } else {
                                                         false
@@ -1867,7 +1867,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         } else {
                                             val currentEmail = currentUser?.email
                                             if (currentEmail != null) {
-                                                val chatKey = if (user.email.startsWith("group_")) user.email else listOf(currentEmail, user.email).sorted().joinToString("__")
+                                                val chatKey = if (user.email.startsWith("group_")) user.email else getNormalizedChatKeySanitized(currentEmail, user.email)
                                                 LocalStorage.getLocalMessages(context, chatKey).lastOrNull()?.senderEmail == currentEmail
                                             } else {
                                                 false
@@ -1953,7 +1953,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         } else {
                                             val currentEmail = currentUser?.email
                                             if (currentEmail != null) {
-                                                val chatKey = if (conversation.email.startsWith("group_")) conversation.email else listOf(currentEmail, conversation.email).sorted().joinToString("__")
+                                                val chatKey = if (conversation.email.startsWith("group_")) conversation.email else getNormalizedChatKeySanitized(currentEmail, conversation.email)
                                                 LocalStorage.getLocalMessages(context, chatKey).lastOrNull()?.senderEmail == currentEmail
                                             } else {
                                                 false
@@ -2044,7 +2044,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         } else {
                                             val currentEmail = currentUser?.email
                                             if (currentEmail != null) {
-                                                val chatKey = if (group.email.startsWith("group_")) group.email else listOf(currentEmail, group.email).sorted().joinToString("__")
+                                                val chatKey = if (group.email.startsWith("group_")) group.email else getNormalizedChatKeySanitized(currentEmail, group.email)
                                                 LocalStorage.getLocalMessages(context, chatKey).lastOrNull()?.senderEmail == currentEmail
                                             } else {
                                                 false
@@ -3315,7 +3315,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                                 } else {
                                                     val currentEmail = currentUser?.email
                                                     if (currentEmail != null) {
-                                                        val chatKey = if (partnerUser.email.startsWith("group_")) partnerUser.email else listOf(currentEmail, partnerUser.email).sorted().joinToString("__")
+                                                        val chatKey = if (partnerUser.email.startsWith("group_")) partnerUser.email else getNormalizedChatKeySanitized(currentEmail, partnerUser.email)
                                                         LocalStorage.getLocalMessages(context, chatKey).lastOrNull()?.senderEmail == currentEmail
                                                     } else {
                                                         false
@@ -3373,7 +3373,7 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                         } else {
                                             val currentEmail = currentUser?.email
                                             if (currentEmail != null) {
-                                                val chatKey = if (user.email.startsWith("group_")) user.email else listOf(currentEmail, user.email).sorted().joinToString("__")
+                                                val chatKey = if (user.email.startsWith("group_")) user.email else getNormalizedChatKeySanitized(currentEmail, user.email)
                                                 LocalStorage.getLocalMessages(context, chatKey).lastOrNull()?.senderEmail == currentEmail
                                             } else {
                                                 false

@@ -422,7 +422,7 @@ class EchoNotificationService : Service() {
                             return@forEach
                         }
 
-                        val rawChatKey = if (isGroup) chatKey else listOf(myEmail, lastSenderClean).sorted().joinToString("__")
+                        val rawChatKey = if (isGroup) chatKey else getNormalizedChatKeySanitized(myEmail, lastSenderClean)
                         // Fetch the actual latest message content from Supabase
                         val messagesResult = try {
                             SupabaseRestClient.service.getValue("messages/$rawChatKey") as? Map<*, *>
