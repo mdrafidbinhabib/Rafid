@@ -1059,8 +1059,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                             return@forEach
                         }
                         val isGrp = otherEmail.startsWith("group_")
-                        val chatKey = if (isGrp) otherEmail else listOf(current.email, otherEmail).sorted().joinToString("__")
-                        val chatKeySanitized = if (isGrp) sanitizeId(otherEmail) else listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+                        val chatKey = if (isGrp) otherEmail else getNormalizedChatKey(current.email, otherEmail)
+                        val chatKeySanitized = if (isGrp) sanitizeId(otherEmail) else getNormalizedChatKeySanitized(current.email, otherEmail)
                         
                         val lastActivity = (remoteLastActivity?.get(chatKeySanitized) as? Number)?.toLong() ?: 0L
                         val lastSender = remoteLastSender?.get(chatKeySanitized)?.toString() ?: ""
@@ -1136,8 +1136,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 
                 allChats.forEach { otherEmail ->
                     val isGrp = otherEmail.startsWith("group_")
-                    val chatKey = if (isGrp) otherEmail else listOf(effectiveCurrentUser.email, otherEmail).sorted().joinToString("__")
-                    val chatKeySanitized = if (isGrp) sanitizeId(otherEmail) else listOf(effectiveCurrentUser.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+                    val chatKey = if (isGrp) otherEmail else getNormalizedChatKey(effectiveCurrentUser.email, otherEmail)
+                    val chatKeySanitized = if (isGrp) sanitizeId(otherEmail) else getNormalizedChatKeySanitized(effectiveCurrentUser.email, otherEmail)
                     
                     val lastActivity = (remoteLastActivity[chatKeySanitized] as? Number)?.toLong() ?: 0L
                     if (lastActivity <= 0) return@forEach
@@ -1249,9 +1249,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 }
 
                 val isGroup = otherEmail.startsWith("group_")
-                val chatKey = if (isGroup) otherEmail else listOf(effectiveCurrentUser.email, otherEmail).sorted().joinToString("__")
+                val chatKey = if (isGroup) otherEmail else getNormalizedChatKey(effectiveCurrentUser.email, otherEmail)
 
-                val chatKeySanitized = if (isGroup) otherEmail else listOf(effectiveCurrentUser.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+                val chatKeySanitized = if (isGroup) otherEmail else getNormalizedChatKeySanitized(effectiveCurrentUser.email, otherEmail)
                 
                 // Fetch seen read receipts for this conversation
                 val seenResult = try {
@@ -1509,7 +1509,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 }
 
             } catch (e: Exception) {
-                val chatKey = listOf(effectiveCurrentUser.email, otherEmail).sorted().joinToString("__")
+                val chatKey = getNormalizedChatKey(effectiveCurrentUser.email, otherEmail)
                 val cachedLocal = LocalStorage.getLocalMessages(context, chatKey)
                 val mappedCached = cachedLocal.map { msg ->
                     val correctIsOwn = msg.senderEmail.lowercase() == current.email.lowercase() || msg.senderEmail.lowercase() == effectiveCurrentUser.email.lowercase()
@@ -1550,7 +1550,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
             val isGrp = user.email.startsWith("group_")
             val chatKey = if (isGrp) user.email else {
                 if (current != null) {
-                    listOf(current.email, user.email).sorted().map(::sanitizeId).joinToString("__")
+                    getNormalizedChatKeySanitized(current.email, user.email)
                 } else {
                     sanitizeId(user.email)
                 }
@@ -1573,7 +1573,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         val spy = _spyingOnUser.value
         val effectiveCurrentUser = spy ?: current
         val isGroup = otherEmail.startsWith("group_")
-        val chatKey = if (isGroup) otherEmail else listOf(effectiveCurrentUser.email, otherEmail).sorted().joinToString("__")
+        val chatKey = if (isGroup) otherEmail else getNormalizedChatKey(effectiveCurrentUser.email, otherEmail)
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 // 1. Copy the message with isUnviewedServerMessage = false
@@ -1591,7 +1591,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
                 // Update local seen timestamp
                 localSeenTimestamps[otherEmail] = System.currentTimeMillis() + 10000L
-                val chatKeySanitized = if (isGroup) sanitizeId(otherEmail) else listOf(effectiveCurrentUser.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+                val chatKeySanitized = if (isGroup) sanitizeId(otherEmail) else getNormalizedChatKeySanitized(effectiveCurrentUser.email, otherEmail)
                 LocalStorage.savePersistedSeenTimestamp(context, chatKeySanitized, System.currentTimeMillis() + 10000L)
 
                 // 4. Reload the conversation
@@ -1647,7 +1647,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
             val spy = _spyingOnUser.value
             val effectiveCurrentUser = spy ?: current
-            val chatKey = if (isGroup) chatUser.email else listOf(effectiveCurrentUser.email, chatUser.email).sorted().joinToString("__")
+            val chatKey = if (isGroup) chatUser.email else getNormalizedChatKey(effectiveCurrentUser.email, chatUser.email)
 
             if (isOffensive) {
                 val sysId = "sys_" + System.currentTimeMillis() + "_" + (1000..9999).random()
@@ -1663,7 +1663,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     FirebaseRestClient.service.setValue("conversations_last_activity/$sanitizedChatId", System.currentTimeMillis())
                     FirebaseRestClient.service.setValue("conversations_last_sender/$sanitizedChatId", "system@echochat.com")
                     if (!isGroup) {
-                        val mutualChatKey = listOf(effectiveCurrentUser.email, chatUser.email).sorted().map(::sanitizeId).joinToString("__")
+                        val mutualChatKey = getNormalizedChatKeySanitized(effectiveCurrentUser.email, chatUser.email)
                         FirebaseRestClient.service.setValue("conversations_last_activity/$mutualChatKey", System.currentTimeMillis())
                         FirebaseRestClient.service.setValue("conversations_last_sender/$mutualChatKey", "system@echochat.com")
                     }
@@ -1740,7 +1740,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     FirebaseRestClient.service.setValue("conversations_last_activity/$sanitizedChatId", System.currentTimeMillis())
                     FirebaseRestClient.service.setValue("conversations_last_sender/$sanitizedChatId", effectiveCurrentUser.email)
                     if (!isGroup) {
-                        val mutualChatKey = listOf(effectiveCurrentUser.email, chatUser.email).sorted().map(::sanitizeId).joinToString("__")
+                        val mutualChatKey = getNormalizedChatKeySanitized(effectiveCurrentUser.email, chatUser.email)
                         FirebaseRestClient.service.setValue("conversations_last_activity/$mutualChatKey", System.currentTimeMillis())
                         FirebaseRestClient.service.setValue("conversations_last_sender/$mutualChatKey", effectiveCurrentUser.email)
                     }
@@ -1786,7 +1786,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 val action = if (alreadyReacted) "remove" else "add"
                 val reactionTxt = "REACTION:$msgId:$emoji:$action:${current.email}"
                 val timestamp = SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ss", Locale.US).format(Date())
-                val participants = listOf(current.email, chatUser.email).sorted()
+                val participants = listOf(current.email.lowercase().trim(), chatUser.email.lowercase().trim()).sorted()
 
                 RetrofitClient.echoChatApi.sendMessage(
                     url = scriptUrl,
@@ -1806,7 +1806,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     fun sendTyping() {
         val current = _currentUser.value ?: return
         val chatUser = _currentChatUser.value ?: return
-        val chatKey = listOf(current.email, chatUser.email).sorted().map(::sanitizeId).joinToString("__")
+        val chatKey = getNormalizedChatKeySanitized(current.email, chatUser.email)
         val userKey = sanitizeId(current.email)
 
         val now = System.currentTimeMillis()
@@ -1828,7 +1828,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     fun stopTyping() {
         val current = _currentUser.value ?: return
         val chatUser = _currentChatUser.value ?: return
-        val chatKey = listOf(current.email, chatUser.email).sorted().map(::sanitizeId).joinToString("__")
+        val chatKey = getNormalizedChatKeySanitized(current.email, chatUser.email)
         val userKey = sanitizeId(current.email)
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -1840,7 +1840,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     fun stopTypingForUser(otherEmail: String) {
         val current = _currentUser.value ?: return
-        val chatKey = listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+        val chatKey = getNormalizedChatKeySanitized(current.email, otherEmail)
         val userKey = sanitizeId(current.email)
 
         viewModelScope.launch(Dispatchers.IO) {
@@ -1857,7 +1857,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
         // 1. Sync Typing Partner Status
         if (chatUser != null) {
-            val chatKey = listOf(current.email, chatUser.email).sorted().map(::sanitizeId).joinToString("__")
+            val chatKey = getNormalizedChatKeySanitized(current.email, chatUser.email)
             try {
                 val typingData = FirebaseRestClient.service.getValue("typing/$chatKey") as? Map<*, *>
                 if (typingData != null) {
@@ -1991,7 +1991,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         val current = _currentUser.value
         if (current != null) {
             val isGroup = email.startsWith("group_")
-            val chatKey = if (isGroup) email else listOf(current.email, email).sorted().joinToString("__")
+            val chatKey = if (isGroup) email else getNormalizedChatKey(current.email, email)
             LocalStorage.saveLocalMessages(context, chatKey, emptyList())
         }
         LocalStorage.deleteConversation(context, email)
@@ -2009,7 +2009,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         val isGroup = chatUser.email.startsWith("group_")
 
         viewModelScope.launch(Dispatchers.IO) {
-            val chatKey = if (isGroup) chatUser.email else listOf(current.email, chatUser.email).sorted().joinToString("__")
+            val chatKey = if (isGroup) chatUser.email else getNormalizedChatKey(current.email, chatUser.email)
             val chatKeySanitized = sanitizeId(chatKey)
             try {
                 FirebaseRestClient.service.setValue("deleted_messages/$chatKeySanitized/$msgId", true)
@@ -2354,7 +2354,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     fun setPerChatWallpaper(otherEmail: String, wallpaper: String) {
         val current = _currentUser.value ?: return
-        val chatKeySanitized = listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+        val chatKeySanitized = getNormalizedChatKeySanitized(current.email, otherEmail)
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 FirebaseRestClient.service.setValue("chat_wallpapers/$chatKeySanitized", wallpaper)
@@ -2371,7 +2371,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
 
     fun setPerChatTheme(otherEmail: String, theme: String) {
         val current = _currentUser.value ?: return
-        val chatKeySanitized = listOf(current.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+        val chatKeySanitized = getNormalizedChatKeySanitized(current.email, otherEmail)
         viewModelScope.launch(Dispatchers.IO) {
             try {
                 FirebaseRestClient.service.setValue("chat_themes/$chatKeySanitized", theme)
@@ -2991,7 +2991,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         lastSeenSyncTime[otherEmail] = now
 
         val isGroup = otherEmail.startsWith("group_")
-        val chatKey = if (isGroup) otherEmail else listOf(effectiveCurrentUser.email, otherEmail).sorted().map(::sanitizeId).joinToString("__")
+        val chatKey = if (isGroup) otherEmail else getNormalizedChatKeySanitized(effectiveCurrentUser.email, otherEmail)
         val userKey = sanitizeId(effectiveCurrentUser.email)
         LocalStorage.savePersistedSeenTimestamp(context, chatKey, System.currentTimeMillis() + 10000L)
         viewModelScope.launch(Dispatchers.IO) {
@@ -4012,7 +4012,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
     }
 
     fun sanitizeId(email: String): String {
-        return email.lowercase().replace(Regex("[.#$\\[\\]]"), "_")
+        return sanitizeEmailId(email)
     }
 }
 

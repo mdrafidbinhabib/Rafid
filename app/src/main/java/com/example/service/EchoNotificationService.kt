@@ -422,15 +422,20 @@ class EchoNotificationService : Service() {
                             return@forEach
                         }
 
+                        val rawChatKey = if (isGroup) chatKey else listOf(myEmail, lastSenderClean).sorted().joinToString("__")
                         // Fetch the actual latest message content from Supabase
                         val messagesResult = try {
-                            SupabaseRestClient.service.getValue("messages/$chatKey") as? Map<*, *>
+                            SupabaseRestClient.service.getValue("messages/$rawChatKey") as? Map<*, *>
                         } catch (e: Exception) {
                             null
                         }
 
-                        var senderName = "নতুন বার্তা"
-                        var messageText = "নিউ এসএমএস"
+                        var senderName = if (isGroup) {
+                            getGroupName(chatKey, remoteGroups)
+                        } else {
+                            getUserNameFromRegistry(lastSender)
+                        }
+                        var messageText = "নতুন বার্তা"
 
                         if (messagesResult != null) {
                             var newestMsg: Map<*, *>? = null
@@ -445,7 +450,7 @@ class EchoNotificationService : Service() {
                             }
 
                             if (newestMsg != null) {
-                                messageText = newestMsg!!["text"] as? String ?: "নিউ এসএমএস"
+                                messageText = newestMsg!!["text"] as? String ?: "নতুন বার্তা"
                                 val senderEmail = newestMsg!!["sender"] as? String ?: ""
                                 
                                 senderName = if (isGroup) {
@@ -536,7 +541,7 @@ class EchoNotificationService : Service() {
     }
 
     private fun sanitizeId(email: String): String {
-        return email.replace(".", "_").replace("@", "_")
+        return sanitizeEmailId(email)
     }
 
     override fun onDestroy() {

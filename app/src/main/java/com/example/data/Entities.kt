@@ -221,3 +221,16 @@ data class AppsScriptVersionActionResponse(
     val id: String? = null
 )
 
+fun sanitizeEmailId(email: String): String {
+    return email.lowercase().trim().replace(".", "_").replace("@", "_").replace(Regex("[.#$\\[\\]]"), "_")
+}
+
+fun getNormalizedChatKey(email1: String, email2: String): String {
+    return listOf(email1.lowercase().trim(), email2.lowercase().trim()).sorted().joinToString("__")
+}
+
+fun getNormalizedChatKeySanitized(email1: String, email2: String): String {
+    return sanitizeEmailId(getNormalizedChatKey(email1, email2))
+}
+
+
