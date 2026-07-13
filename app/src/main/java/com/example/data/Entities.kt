@@ -226,11 +226,11 @@ fun sanitizeEmailId(email: String): String {
 }
 
 fun getNormalizedChatKey(email1: String, email2: String): String {
-    return listOf(email1.lowercase().trim(), email2.lowercase().trim()).sorted().joinToString("__")
+    return getNormalizedChatKeySanitized(email1, email2)
 }
 
 fun getNormalizedChatKeySanitized(email1: String, email2: String): String {
-    return sanitizeEmailId(getNormalizedChatKey(email1, email2))
+    return listOf(sanitizeEmailId(email1), sanitizeEmailId(email2)).sorted().joinToString("__")
 }
 
 

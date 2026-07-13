@@ -796,6 +796,7 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     val recentEmails = mutableSetOf<String>()
                     val timestampsMap = mutableMapOf<String, Long>()
                     val lastMsgsMap = mutableMapOf<String, String>()
+                    val lastMsgsSenderMap = mutableMapOf<String, String>()
                     val currentSecured = _securedChats.value
                     val currentUserName = effectiveCurrentUser.name.replace(Regex("\\[\\{.*?\\}\\(.*\\)\\]"), "").trim()
 
@@ -914,6 +915,11 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     } catch (e: Exception) {
                         null
                     }
+                    val remoteLastMessage = try {
+                        FirebaseRestClient.service.getValue("conversations_last_message") as? Map<*, *>
+                    } catch (e: Exception) {
+                        null
+                    }
                     val remoteSeen = try {
                         FirebaseRestClient.service.getValue("seen") as? Map<*, *>
                     } catch (e: Exception) {
@@ -941,6 +947,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                                         val existingTs = timestampsMap[matchingUser.email] ?: 0L
                                         if (ts > existingTs) {
                                             timestampsMap[matchingUser.email] = ts
+                                            lastMsgsMap[matchingUser.email] = remoteLastMessage?.get(chatKeyStr)?.toString() ?: ""
+                                            lastMsgsSenderMap[matchingUser.email] = remoteLastSender?.get(chatKeyStr)?.toString() ?: ""
                                         }
                                         val existingActTs = activityMap[matchingUser.email] ?: 0L
                                         if (ts > existingActTs) {
@@ -958,6 +966,8 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                                 if (ts > existingTs) {
                                     timestampsMap[matchingUser.email] = ts
                                     recentEmails.add(matchingUser.email)
+                                    lastMsgsMap[matchingUser.email] = remoteLastMessage?.get(chatKeyStr)?.toString() ?: ""
+                                    lastMsgsSenderMap[matchingUser.email] = remoteLastSender?.get(chatKeyStr)?.toString() ?: ""
                                 }
                                 val existingActTs = activityMap[matchingUser.email] ?: 0L
                                 if (ts > existingActTs) {
@@ -967,8 +977,6 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                             }
                         }
                     }
-
-                    val lastMsgsSenderMap = mutableMapOf<String, String>()
                     rawMessages.forEach { msg ->
                         val parts = msg.getParticipantsList()
                         if (parts.size == 2 && parts.contains(effectiveCurrentUser.email)) {
@@ -1371,6 +1379,37 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     supabaseMessages.removeAll { it.id in deletedIds }
                 }
 
+                // Self-destruct messages handling for Supabase messages
+                val now = System.currentTimeMillis()
+                val selfDestructToDelete = mutableListOf<String>()
+                supabaseMessages.forEach { msg ->
+                    if (msg.text.contains("⏱️ [SD:")) {
+                        val durationStr = msg.text.substringAfter("⏱️ [SD:").substringBefore("]").trim()
+                        val msLimit = when (durationStr) {
+                            "10s" -> 10000L
+                            "30s" -> 30000L
+                            "60s" -> 60000L
+                            else -> 0L
+                        }
+                        if (msLimit > 0L && now > msg.timestampMs + msLimit) {
+                            selfDestructToDelete.add(msg.id)
+                        }
+                    }
+                }
+                
+                if (selfDestructToDelete.isNotEmpty()) {
+                    selfDestructToDelete.forEach { msgId ->
+                        launch(Dispatchers.IO) {
+                            try {
+                                SupabaseRestClient.service.deleteValue("messages/$chatKey/$msgId")
+                            } catch (e: Exception) {
+                                e.printStackTrace()
+                            }
+                        }
+                    }
+                    supabaseMessages.removeAll { it.id in selfDestructToDelete }
+                }
+
                 if (isGroup) {
                     val groupMsgs = supabaseMessages.map { msg ->
                         val correctIsOwn = msg.senderEmail.lowercase() == current.email.lowercase() || msg.senderEmail.lowercase() == effectiveCurrentUser.email.lowercase()
@@ -1392,14 +1431,30 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 }
 
                 val cachedLocalRaw = LocalStorage.getLocalMessages(context, chatKey)
+                // Filter expired self destruct messages from cached local storage
+                val localFiltered = cachedLocalRaw.filter { msg ->
+                    if (msg.text.contains("⏱️ [SD:")) {
+                        val durationStr = msg.text.substringAfter("⏱️ [SD:").substringBefore("]").trim()
+                        val msLimit = when (durationStr) {
+                            "10s" -> 10000L
+                            "30s" -> 30000L
+                            "60s" -> 60000L
+                            else -> 0L
+                        }
+                        msLimit <= 0L || now <= msg.timestampMs + msLimit
+                    } else true
+                }
+                if (localFiltered.size != cachedLocalRaw.size) {
+                    LocalStorage.saveLocalMessages(context, chatKey, localFiltered)
+                }
                 val cachedLocal = if (deletedIds.isNotEmpty()) {
-                    val filtered = cachedLocalRaw.filter { it.id !in deletedIds }
-                    if (filtered.size != cachedLocalRaw.size) {
+                    val filtered = localFiltered.filter { it.id !in deletedIds }
+                    if (filtered.size != localFiltered.size) {
                         LocalStorage.saveLocalMessages(context, chatKey, filtered)
                     }
                     filtered
                 } else {
-                    cachedLocalRaw
+                    localFiltered
                 }
                 val cachedIds = cachedLocal.map { it.id }.toSet()
 
@@ -1662,10 +1717,12 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                     val sanitizedChatId = sanitizeId(chatUser.email)
                     FirebaseRestClient.service.setValue("conversations_last_activity/$sanitizedChatId", System.currentTimeMillis())
                     FirebaseRestClient.service.setValue("conversations_last_sender/$sanitizedChatId", "system@echochat.com")
+                    FirebaseRestClient.service.setValue("conversations_last_message/$sanitizedChatId", "আপনার ভাষা ঠিক করুন নয়তো আপনার অ্যাকাউন্ট বন্ধ করা হবে।")
                     if (!isGroup) {
                         val mutualChatKey = getNormalizedChatKeySanitized(effectiveCurrentUser.email, chatUser.email)
                         FirebaseRestClient.service.setValue("conversations_last_activity/$mutualChatKey", System.currentTimeMillis())
                         FirebaseRestClient.service.setValue("conversations_last_sender/$mutualChatKey", "system@echochat.com")
+                        FirebaseRestClient.service.setValue("conversations_last_message/$mutualChatKey", "আপনার ভাষা ঠিক করুন নয়তো আপনার অ্যাকাউন্ট বন্ধ করা হবে।")
                     }
                     loadMessagesForConversation(chatUser.email)
                 } catch (e: Exception) {}
@@ -1734,15 +1791,17 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 )
                 SupabaseRestClient.service.setValue("messages/$chatKey/$msgId", msgMap)
 
-                // Set last active timestamp and last sender on Firebase
+                 // Set last active timestamp, last sender, and last message on Firebase
                 val sanitizedChatId = sanitizeId(chatUser.email)
                 try {
                     FirebaseRestClient.service.setValue("conversations_last_activity/$sanitizedChatId", System.currentTimeMillis())
                     FirebaseRestClient.service.setValue("conversations_last_sender/$sanitizedChatId", effectiveCurrentUser.email)
+                    FirebaseRestClient.service.setValue("conversations_last_message/$sanitizedChatId", text)
                     if (!isGroup) {
                         val mutualChatKey = getNormalizedChatKeySanitized(effectiveCurrentUser.email, chatUser.email)
                         FirebaseRestClient.service.setValue("conversations_last_activity/$mutualChatKey", System.currentTimeMillis())
                         FirebaseRestClient.service.setValue("conversations_last_sender/$mutualChatKey", effectiveCurrentUser.email)
+                        FirebaseRestClient.service.setValue("conversations_last_message/$mutualChatKey", text)
                     }
                 } catch(e: Exception) {}
 
@@ -3795,6 +3854,56 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
                 loadBlockedUsers()
             } catch (e: Exception) {
                 e.printStackTrace()
+            }
+        }
+    }
+
+    fun adminUpdateUserProfile(
+        oldEmail: String,
+        newEmail: String,
+        newName: String,
+        newPhotoUrl: String,
+        newStatusMessage: String,
+        onComplete: (Boolean) -> Unit
+    ) {
+        viewModelScope.launch(Dispatchers.IO) {
+            try {
+                val profileMap = mapOf(
+                    "email" to newEmail,
+                    "name" to newName,
+                    "photoUrl" to newPhotoUrl,
+                    "statusMessage" to newStatusMessage
+                )
+                SupabaseRestClient.service.setValue("profiles/${sanitizeId(newEmail)}", profileMap)
+                
+                // If email changed, delete the old profile row
+                if (oldEmail.lowercase().trim() != newEmail.lowercase().trim()) {
+                    try {
+                        SupabaseRestClient.service.deleteValue("profiles/${sanitizeId(oldEmail)}")
+                    } catch (e: Exception) {
+                        e.printStackTrace()
+                    }
+                }
+                
+                // Update local model if it's the current user
+                val current = _currentUser.value
+                if (current != null && current.email.lowercase().trim() == oldEmail.lowercase().trim()) {
+                    val updated = current.copy(email = newEmail, name = newName, photoUrl = newPhotoUrl, statusMessage = newStatusMessage)
+                    withContext(Dispatchers.Main) {
+                        _currentUser.value = updated
+                    }
+                    LocalStorage.saveLoggedInUser(context, updated, LocalStorage.getAccessKey(context) ?: "")
+                }
+                
+                loadAllConversationsAndUsers()
+                withContext(Dispatchers.Main) {
+                    onComplete(true)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+                withContext(Dispatchers.Main) {
+                    onComplete(false)
+                }
             }
         }
     }

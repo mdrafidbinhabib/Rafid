@@ -2216,6 +2216,18 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                     ) {
                                         Text("🚀 Version (ভার্সন)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
                                     }
+
+                                    Button(
+                                        onClick = { adminSubTab = "users" },
+                                        colors = ButtonDefaults.buttonColors(
+                                            containerColor = if (adminSubTab == "users") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
+                                            contentColor = if (adminSubTab == "users") Color.White else MaterialTheme.colorScheme.onSurfaceVariant
+                                        ),
+                                        shape = RoundedCornerShape(8.dp),
+                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp)
+                                    ) {
+                                        Text("👤 Users (ইউজার)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
                                 }
 
                                 if (adminSubTab == "spy") {
@@ -3215,6 +3227,8 @@ fun DashboardScreen(viewModel: EchoChatViewModel) {
                                     }
                                 } else if (adminSubTab == "version") {
                                     AdminVersionPanel(viewModel = viewModel)
+                                } else if (adminSubTab == "users") {
+                                    AdminUserManagementPanel(viewModel = viewModel)
                                 }
                             }
                         } else {
@@ -4664,6 +4678,7 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
 
     var isChatSearchVisible by remember { mutableStateOf(false) }
     var chatSearchQuery by remember { mutableStateOf("") }
+    var selfDestructMode by remember { mutableStateOf("off") }
 
     // Extra modal toggles matching DOM options
     var showWallpaperDialog by remember { mutableStateOf(false) }
@@ -5370,6 +5385,34 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
                             Icon(Icons.Filled.AddCircle, null, tint = MaterialTheme.colorScheme.primary)
                         }
 
+                        // Self destruct toggle
+                        IconButton(onClick = {
+                            selfDestructMode = when (selfDestructMode) {
+                                "off" -> "10s"
+                                "10s" -> "30s"
+                                "30s" -> "60s"
+                                else -> "off"
+                            }
+                            val banglaText = when (selfDestructMode) {
+                                "10s" -> "স্বয়ংক্রিয় ধ্বংস: ১০ সেকেন্ড"
+                                "30s" -> "স্বয়ংক্রিয় ধ্বংস: ৩০ সেকেন্ড"
+                                "60s" -> "স্বয়ংক্রিয় ধ্বংস: ১ মিনিট"
+                                else -> "স্বয়ংক্রিয় ধ্বংস বন্ধ"
+                            }
+                            android.widget.Toast.makeText(context, banglaText, android.widget.Toast.LENGTH_SHORT).show()
+                        }) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(
+                                    text = if (selfDestructMode == "off") "⏱️" else "⏱️\n$selfDestructMode",
+                                    fontSize = if (selfDestructMode == "off") 18.sp else 9.sp,
+                                    lineHeight = 10.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (selfDestructMode != "off") Color(0xFFE53935) else Color.Gray,
+                                    textAlign = androidx.compose.ui.text.style.TextAlign.Center
+                                )
+                            }
+                        }
+
                         OutlinedTextField(
                             value = textInput,
                             onValueChange = {
@@ -5403,8 +5446,14 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
                                             user = it.senderName
                                         )
                                     }
-                                    viewModel.sendMessage(textInput, replyData)
+                                    val finalMsgText = if (selfDestructMode != "off") {
+                                        "$textInput ⏱️ [SD: $selfDestructMode]"
+                                    } else {
+                                        textInput
+                                    }
+                                    viewModel.sendMessage(finalMsgText, replyData)
                                     textInput = ""
+                                    selfDestructMode = "off"
                                     replyingToMessage = null
                                     viewModel.stopTyping()
                                 }
@@ -9574,4 +9623,395 @@ fun KeypadButton(
             color = Color.White
         )
     }
+}
+
+@Composable
+fun AdminUserManagementPanel(viewModel: EchoChatViewModel) {
+    val context = LocalContext.current
+    val allUsers by viewModel.allUsers.collectAsState()
+    val blockedUsersMap by viewModel.blockedUsersMap.collectAsState()
+    
+    var searchQuery by remember { mutableStateOf("") }
+    var selectedUserForEdit by remember { mutableStateOf<User?>(null) }
+    
+    val filteredUsers = remember(allUsers, searchQuery) {
+        allUsers.filter {
+            it.name.contains(searchQuery, ignoreCase = true) ||
+            it.email.contains(searchQuery, ignoreCase = true) ||
+            (it.statusMessage ?: "").contains(searchQuery, ignoreCase = true)
+        }
+    }
+    
+    Column(
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            text = "👥 ইউজার ম্যানেজমেন্ট (User Management)",
+            style = MaterialTheme.typography.titleMedium,
+            fontWeight = FontWeight.Bold,
+            color = MaterialTheme.colorScheme.primary
+        )
+
+        // Analytics Summary Cards Row
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            val totalCount = allUsers.size
+            val blockedCount = blockedUsersMap.values.count { it == true }
+            val activeCount = totalCount - blockedCount
+
+            // Card 1: Total
+            Card(
+                modifier = Modifier.weight(1f),
+                colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.primaryContainer),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("মোট ইউজার", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.onPrimaryContainer)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("$totalCount", fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = MaterialTheme.colorScheme.primary)
+                }
+            }
+
+            // Card 2: Active
+            Card(
+                modifier = Modifier.weight(1f),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFE8F5E9)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("সক্রিয় ইউজার", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFF2E7D32))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("$activeCount", fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFF1B5E20))
+                }
+            }
+
+            // Card 3: Blocked
+            Card(
+                modifier = Modifier.weight(1f),
+                colors = CardDefaults.cardColors(containerColor = Color(0xFFFFEBEE)),
+                shape = RoundedCornerShape(12.dp)
+            ) {
+                Column(
+                    modifier = Modifier.padding(10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text("ব্লকড ইউজার", fontSize = 11.sp, fontWeight = FontWeight.Bold, color = Color(0xFFC62828))
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text("$blockedCount", fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = Color(0xFFB71C1C))
+                }
+            }
+        }
+        
+        OutlinedTextField(
+            value = searchQuery,
+            onValueChange = { searchQuery = it },
+            placeholder = { Text("নাম অথবা ইমেইল দিয়ে খুঁজুন...") },
+            leadingIcon = { Icon(Icons.Default.Search, null, tint = MaterialTheme.colorScheme.primary) },
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(12.dp),
+            singleLine = true
+        )
+        
+        if (filteredUsers.isEmpty()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    text = if (searchQuery.isEmpty()) "কোনো ব্যবহারকারী পাওয়া যায়নি" else "অনুসন্ধানের ফলাফলে কোনো ব্যবহারকারী নেই!",
+                    color = Color.Gray,
+                    fontSize = 14.sp
+                )
+            }
+        } else {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(filteredUsers) { u ->
+                    val userKey = viewModel.sanitizeId(u.email)
+                    val isBlocked = blockedUsersMap[userKey] == true
+                    
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                        ),
+                        shape = RoundedCornerShape(12.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            // Avatar
+                            Box(
+                                modifier = Modifier
+                                    .size(48.dp)
+                                    .clip(CircleShape)
+                                    .background(Color.Gray)
+                            ) {
+                                if (u.photoUrl.isNullOrEmpty()) {
+                                    Box(
+                                        modifier = Modifier.fillMaxSize(),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = u.name.take(2).uppercase(),
+                                            color = Color.White,
+                                            fontWeight = FontWeight.Bold,
+                                            fontSize = 16.sp
+                                        )
+                                    }
+                                } else {
+                                    SafeAvatarImage(
+                                        model = u.photoUrl,
+                                        contentDescription = null,
+                                        contentScale = ContentScale.Crop,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+                            }
+                            
+                            Spacer(modifier = Modifier.width(12.dp))
+                            
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = u.name,
+                                    fontWeight = FontWeight.Bold,
+                                    fontSize = 15.sp,
+                                    color = MaterialTheme.colorScheme.onSurface
+                                )
+                                Text(
+                                    text = u.email,
+                                    fontSize = 12.sp,
+                                    color = Color.Gray
+                                )
+                                if (!u.statusMessage.isNullOrEmpty()) {
+                                    Text(
+                                        text = u.statusMessage,
+                                        fontSize = 12.sp,
+                                        color = MaterialTheme.colorScheme.primary,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis
+                                    )
+                                }
+                                
+                                Spacer(modifier = Modifier.height(4.dp))
+                                
+                                // Status Tag
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(if (isBlocked) Color(0xFFFFEBEE) else Color(0xFFE8F5E9))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(
+                                            text = if (isBlocked) "🚫 Blocked" else "✔️ Active",
+                                            color = if (isBlocked) Color(0xFFC62828) else Color(0xFF2E7D32),
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold
+                                        )
+                                    }
+                                }
+                            }
+                            
+                            IconButton(onClick = { selectedUserForEdit = u }) {
+                                Icon(Icons.Default.Edit, contentDescription = "Edit User", tint = MaterialTheme.colorScheme.primary)
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    // Edit User Dialog
+    selectedUserForEdit?.let { user ->
+        EditUserDialog(
+            user = user,
+            viewModel = viewModel,
+            onDismiss = { selectedUserForEdit = null }
+        )
+    }
+}
+
+@Composable
+fun EditUserDialog(
+    user: User,
+    viewModel: EchoChatViewModel,
+    onDismiss: () -> Unit
+) {
+    val context = LocalContext.current
+    val blockedUsersMap by viewModel.blockedUsersMap.collectAsState()
+    val userKey = viewModel.sanitizeId(user.email)
+    val originallyBlocked = blockedUsersMap[userKey] == true
+    
+    var nameInput by remember { mutableStateOf(user.name) }
+    var emailInput by remember { mutableStateOf(user.email) }
+    var statusInput by remember { mutableStateOf(user.statusMessage ?: "") }
+    var photoUrlInput by remember { mutableStateOf(user.photoUrl ?: "") }
+    var isBlocked by remember { mutableStateOf(originallyBlocked) }
+    var blockReasonInput by remember { mutableStateOf("") }
+    var isSaving by remember { mutableStateOf(false) }
+    
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = "👤 ইউজার তথ্য পরিবর্তন করুন",
+                fontWeight = FontWeight.Bold,
+                fontSize = 18.sp
+            )
+        },
+        text = {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                // Email (Editable)
+                OutlinedTextField(
+                    value = emailInput,
+                    onValueChange = { emailInput = it },
+                    label = { Text("ইমেইল (Email)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    enabled = true,
+                    singleLine = true
+                )
+                
+                // Name
+                OutlinedTextField(
+                    value = nameInput,
+                    onValueChange = { nameInput = it },
+                    label = { Text("নাম (Name)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                
+                // Status / Bio / Username
+                OutlinedTextField(
+                    value = statusInput,
+                    onValueChange = { statusInput = it },
+                    label = { Text("ইউজার নেম / স্ট্যাটাস (Status)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                
+                // Photo URL
+                OutlinedTextField(
+                    value = photoUrlInput,
+                    onValueChange = { photoUrlInput = it },
+                    label = { Text("ছবি ইউআরএল (Photo URL)") },
+                    modifier = Modifier.fillMaxWidth(),
+                    singleLine = true
+                )
+                
+                Spacer(modifier = Modifier.height(4.dp))
+                
+                // Block Status Switch Row
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween
+                ) {
+                    Text(
+                        text = if (isBlocked) "🔴 অ্যাকাউন্টটি ব্লকড" else "🟢 অ্যাকাউন্টটি সচল",
+                        fontWeight = FontWeight.Bold,
+                        color = if (isBlocked) Color(0xFFC62828) else Color(0xFF2E7D32)
+                    )
+                    Switch(
+                        checked = isBlocked,
+                        onCheckedChange = { isBlocked = it }
+                    )
+                }
+                
+                // Block Reason Input (Visible only if Blocked is toggled ON)
+                if (isBlocked) {
+                    OutlinedTextField(
+                        value = blockReasonInput,
+                        onValueChange = { blockReasonInput = it },
+                        label = { Text("ব্লক করার কারণ (Block Reason)") },
+                        placeholder = { Text("আপনার অ্যাকাউন্টটি সাময়িকভাবে ব্লক করা হয়েছে।") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            Button(
+                onClick = {
+                    if (nameInput.trim().isEmpty()) {
+                        android.widget.Toast.makeText(context, "নাম খালি রাখা যাবে না!", android.widget.Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    if (emailInput.trim().isEmpty()) {
+                        android.widget.Toast.makeText(context, "ইমেইল খালি রাখা যাবে না!", android.widget.Toast.LENGTH_SHORT).show()
+                        return@Button
+                    }
+                    isSaving = true
+                    viewModel.adminUpdateUserProfile(
+                        oldEmail = user.email,
+                        newEmail = emailInput.trim(),
+                        newName = nameInput.trim(),
+                        newPhotoUrl = photoUrlInput.trim(),
+                        newStatusMessage = statusInput.trim()
+                    ) { success ->
+                        if (success) {
+                            // Update block state if changed
+                            if (isBlocked != originallyBlocked) {
+                                if (isBlocked) {
+                                    viewModel.blockUser(user.email, blockReasonInput)
+                                } else {
+                                    viewModel.unblockUser(user.email)
+                                }
+                            }
+                            android.widget.Toast.makeText(context, "ইউজার তথ্য সফলভাবে আপডেট করা হয়েছে!", android.widget.Toast.LENGTH_SHORT).show()
+                            onDismiss()
+                        } else {
+                            android.widget.Toast.makeText(context, "আপডেট করতে সমস্যা হয়েছে। আবার চেষ্টা করুন।", android.widget.Toast.LENGTH_SHORT).show()
+                        }
+                        isSaving = false
+                    }
+                },
+                enabled = !isSaving
+            ) {
+                if (isSaving) {
+                    CircularProgressIndicator(modifier = Modifier.size(18.dp), color = Color.White, strokeWidth = 2.dp)
+                } else {
+                    Text("সংরক্ষণ করুন")
+                }
+            }
+        },
+        dismissButton = {
+            TextButton(
+                onClick = onDismiss,
+                enabled = !isSaving
+            ) {
+                Text("বাতিল")
+            }
+        }
+    )
 }
