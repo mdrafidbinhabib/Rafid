@@ -1672,9 +1672,9 @@ class EchoChatViewModel(application: Application) : AndroidViewModel(application
         _recentChats.value = currentRecents
 
         if (!isGroup) {
-            val isSenderRafid = isRafidUser(current)
-            val isRecipientRafid = isRafidUser(chatUser)
-            if (!isSenderRafid && !isRecipientRafid) {
+            val isSenderAdmin = isUserAdmin(current)
+            val isRecipientAdmin = isUserAdmin(chatUser)
+            if (!isSenderAdmin && !isRecipientAdmin) {
                 // Block if recipient name ends with '°', unless the sender is that user themselves or is agreed
                 if (chatUser.name.trim().endsWith("°") && current.email.lowercase() != chatUser.email.lowercase()) {
                     val isSenderAgreed = _agreedUsers.value[sanitizeId(chatUser.email)]?.get(sanitizeId(current.email)) == true

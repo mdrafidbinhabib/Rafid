@@ -5329,19 +5329,19 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
             val localCurrentUser = currentUser
             val isGroup = localChatUser?.email?.startsWith("group_") == true
             val isRecipientSpecial = !isGroup && localChatUser?.name?.trim()?.endsWith("°") == true
-            val isSenderRafid = viewModel.isRafidUser(localCurrentUser)
+            val isSenderAdmin = viewModel.isUserAdmin(localCurrentUser)
             val isSenderSelf = localCurrentUser?.email?.lowercase() == localChatUser?.email?.lowercase()
             val isSenderAgreed = if (localChatUser != null && localCurrentUser != null) {
                 agreedUsers[viewModel.sanitizeId(localChatUser.email)]?.get(viewModel.sanitizeId(localCurrentUser.email)) == true
             } else {
                 false
             }
-            val canSms = !isRecipientSpecial || isSenderRafid || isSenderSelf || isSenderAgreed
+            val canSms = !isRecipientSpecial || isSenderAdmin || isSenderSelf || isSenderAgreed
 
-            val isRecipientAdmin = !isGroup && viewModel.isRafidUser(localChatUser)
-            val isSenderAdmin = viewModel.isRafidUser(localCurrentUser)
+            val isRecipientAdmin = !isGroup && viewModel.isUserAdmin(localChatUser)
+            val isSenderAdminForPrivacy = viewModel.isUserAdmin(localCurrentUser)
 
-            val isAllowedByAdminPrivacy = if (isRecipientAdmin && !isSenderAdmin) {
+            val isAllowedByAdminPrivacy = if (isRecipientAdmin && !isSenderAdminForPrivacy) {
                 when (adminPrivacyMode) {
                     "Yes" -> false
                     "Customize" -> {
@@ -5352,6 +5352,63 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
                 }
             } else {
                 true
+            }
+
+            val isCurrentUserSpecial = !isGroup && localCurrentUser?.name?.trim()?.endsWith("°") == true
+            val isChatPartnerNormal = localChatUser != null && !isGroup && !viewModel.isAiUser(localChatUser) && localCurrentUser?.email?.lowercase() != localChatUser.email.lowercase()
+            val hasAllowedPartner = if (localCurrentUser != null && localChatUser != null) {
+                agreedUsers[viewModel.sanitizeId(localCurrentUser.email)]?.get(viewModel.sanitizeId(localChatUser.email)) == true
+            } else {
+                false
+            }
+
+            if (isCurrentUserSpecial && isChatPartnerNormal && !hasAllowedPartner) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 6.dp),
+                    shape = RoundedCornerShape(12.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.9f),
+                    tonalElevation = 2.dp
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                            Text(
+                                text = "🔒 এসএমএস অনুমতি (SMS Permission)",
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "আপনি এখনো '${removeLinkAndLockFromName(localChatUser?.name ?: "")}' কে আপনাকে বার্তা পাঠানোর অনুমতি দেননি।",
+                                fontSize = 11.sp,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f)
+                            )
+                        }
+                        Button(
+                            onClick = {
+                                if (localCurrentUser != null && localChatUser != null) {
+                                    viewModel.agreeSmsUser(localCurrentUser.email, localChatUser.email)
+                                }
+                            },
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = MaterialTheme.colorScheme.primary,
+                                contentColor = MaterialTheme.colorScheme.onPrimary
+                            ),
+                            contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 12.dp, vertical = 4.dp),
+                            modifier = Modifier.height(36.dp)
+                        ) {
+                            Text("অনুমতি দিন (Agree)", fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                        }
+                    }
+                }
             }
 
             if (canSms && isAllowedByAdminPrivacy) {
