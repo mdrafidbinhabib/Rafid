@@ -4,6 +4,7 @@ import android.app.*
 import android.content.Context
 import android.content.Intent
 import android.graphics.Color
+import android.graphics.drawable.BitmapDrawable
 import android.media.AudioAttributes
 import android.media.RingtoneManager
 import android.os.Build
@@ -13,6 +14,8 @@ import androidx.core.app.NotificationCompat
 import com.example.MainActivity
 import com.example.data.*
 import kotlinx.coroutines.*
+import coil.Coil
+import coil.request.ImageRequest
 import java.text.SimpleDateFormat
 import java.util.*
 
@@ -190,15 +193,33 @@ class EchoNotificationService : Service() {
     }
 
     private val userRegistry = mutableMapOf<String, String>() // email -> name
+    private val userPhotoRegistry = mutableMapOf<String, String>() // email -> photoUrl
     private var lastUserRegistryFetch = 0L
 
     private suspend fun refreshUserRegistry() {
         if (System.currentTimeMillis() - lastUserRegistryFetch > 300000) { // every 5 minutes
             try {
                 val userRes = RetrofitClient.echoChatApi.getUsers(scriptUrl)
+                val remoteProfiles = try {
+                    SupabaseRestClient.service.getValue("profiles") as? Map<*, *>
+                } catch (e: Exception) {
+                    null
+                }
                 if (userRes != null && userRes.status == "success" && userRes.users != null) {
                     userRes.users.forEach { u ->
-                        userRegistry[u.email.lowercase().trim()] = u.name
+                        val cleanEmail = u.email.lowercase().trim()
+                        var name = u.name
+                        var photoUrl = u.photoUrl ?: ""
+                        if (remoteProfiles != null) {
+                            val sanitizedEmailId = cleanEmail.replace(".", "_").replace("@", "_").replace("#", "_").replace("$", "_").replace("[", "_").replace("]", "_")
+                            val customData = remoteProfiles[sanitizedEmailId] as? Map<*, *>
+                            if (customData != null) {
+                                name = customData["name"] as? String ?: u.name
+                                photoUrl = customData["photoUrl"] as? String ?: photoUrl
+                            }
+                        }
+                        userRegistry[cleanEmail] = name
+                        userPhotoRegistry[cleanEmail] = photoUrl
                     }
                     lastUserRegistryFetch = System.currentTimeMillis()
                 }
@@ -464,7 +485,8 @@ class EchoNotificationService : Service() {
                         }
 
                         val isSenderHidden = hiddenChats.keys.any { sanitizeId(it).equals(sanitizeId(lastSender), ignoreCase = true) }
-                        showChatNotification(chatKey, senderName, messageText, isHidden = isSenderHidden)
+                        val senderPhotoUrl = if (isGroup) null else getUserPhotoUrlFromRegistry(lastSender)
+                        showChatNotification(chatKey, senderName, messageText, isHidden = isSenderHidden, photoUrl = senderPhotoUrl)
                     }
                 }
             }
@@ -510,7 +532,12 @@ class EchoNotificationService : Service() {
         notificationManager.notify(roomId.hashCode(), notification)
     }
 
-    private fun showChatNotification(chatKey: String, senderName: String, text: String, isHidden: Boolean) {
+    private fun getUserPhotoUrlFromRegistry(email: String): String? {
+        val cleanEmail = email.lowercase().trim()
+        return userPhotoRegistry[cleanEmail]
+    }
+
+    private fun showChatNotification(chatKey: String, senderName: String, text: String, isHidden: Boolean, photoUrl: String? = null) {
         val intent = Intent(this, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
@@ -522,9 +549,9 @@ class EchoNotificationService : Service() {
         )
 
         val title = if (isHidden) "নতুন বার্তা" else senderName
-        val content = if (isHidden) "নিউ এসএমএস" else text
+        val content = if (isHidden) "নিউ এসএমএস" else "সেন্ড মেসেজ: $text"
 
-        val notification = NotificationCompat.Builder(this, CHANNEL_CHATS_ID)
+        val builder = NotificationCompat.Builder(this, CHANNEL_CHATS_ID)
             .setContentTitle(title)
             .setContentText(content)
             .setSmallIcon(com.example.R.drawable.ic_launcher_foreground)
@@ -533,8 +560,25 @@ class EchoNotificationService : Service() {
             .setContentIntent(pendingIntent)
             .setAutoCancel(true)
             .setVibrate(longArrayOf(0, 200, 100, 200))
-            .build()
 
+        if (!isHidden && !photoUrl.isNullOrEmpty()) {
+            try {
+                val imageLoader = Coil.imageLoader(this)
+                val request = ImageRequest.Builder(this)
+                    .data(photoUrl)
+                    .allowHardware(false) // required to obtain a software Bitmap for LargeIcon
+                    .build()
+                val result = runBlocking { imageLoader.execute(request) }
+                val drawable = result.drawable
+                if (drawable is BitmapDrawable) {
+                    builder.setLargeIcon(drawable.bitmap)
+                }
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+
+        val notification = builder.build()
         val notificationManager = getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
         val notificationId = Math.abs(chatKey.hashCode())
         notificationManager.notify(notificationId, notification)

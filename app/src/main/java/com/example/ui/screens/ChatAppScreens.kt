@@ -5213,7 +5213,8 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
                             senderPhotoUrl = senderPhotoUrl,
                             onReply = {
                                 replyingToMessage = msg
-                            }
+                            },
+                            themeKey = windowTheme
                         )
                     }
                 }
@@ -5273,6 +5274,48 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
                                 drawRect(
                                     brush = Brush.verticalGradient(
                                         colors = listOf(Color(0xFF134E5E).copy(alpha = 0.08f), Color(0xFF71B280).copy(alpha = 0.08f))
+                                    )
+                                )
+                            }
+                            "lavender" -> {
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(Color(0xFFEEF2FF).copy(alpha = 0.08f), Color(0xFFC7D2FE).copy(alpha = 0.08f))
+                                    )
+                                )
+                            }
+                            "sakura" -> {
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(Color(0xFFFFF1F2).copy(alpha = 0.08f), Color(0xFFFCE7F3).copy(alpha = 0.08f))
+                                    )
+                                )
+                            }
+                            "cyberpunk" -> {
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(Color(0xFF03001E).copy(alpha = 0.08f), Color(0xFF7303C0).copy(alpha = 0.08f))
+                                    )
+                                )
+                            }
+                            "mint" -> {
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(Color(0xFFF0FDF4).copy(alpha = 0.08f), Color(0xFFDCFCE7).copy(alpha = 0.08f))
+                                    )
+                                )
+                            }
+                            "royal" -> {
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(Color(0xFFEFF6FF).copy(alpha = 0.08f), Color(0xFFDBEAFE).copy(alpha = 0.08f))
+                                    )
+                                )
+                            }
+                            "fire" -> {
+                                drawRect(
+                                    brush = Brush.verticalGradient(
+                                        colors = listOf(Color(0xFFFEF2F2).copy(alpha = 0.08f), Color(0xFFFEE2E2).copy(alpha = 0.08f))
                                     )
                                 )
                             }
@@ -5754,22 +5797,37 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
             onDismissRequest = { showThemeDialog = false },
             title = { Text("🎨 চ্যাট থিম পরিবর্তন") },
             text = {
-                val themes = listOf("default", "sunset", "ocean", "forest", "midnight", "neon", "warm", "rose")
+                val themes = listOf(
+                    "default" to "ডিফল্ট",
+                    "sunset" to "গোধূলি",
+                    "ocean" to "মহাসাগর",
+                    "forest" to "অরণ্য",
+                    "midnight" to "মধ্যরাত",
+                    "neon" to "নিয়ন",
+                    "warm" to "উষ্ণ",
+                    "rose" to "গোলাপ",
+                    "lavender" to "ল্যাভেন্ডার",
+                    "sakura" to "সাকুরা",
+                    "cyberpunk" to "সাইবার",
+                    "mint" to "পুদিনা",
+                    "royal" to "রাজকীয়",
+                    "fire" to "আগুন"
+                )
                 Column {
                     Text("এই চ্যাটের জন্য নির্দিষ্ট একটি থিম নির্বাচন করুনঃ", fontSize = 13.sp)
                     Spacer(modifier = Modifier.height(12.dp))
-                    themes.chunked(4).forEach { row ->
+                    themes.chunked(3).forEach { row ->
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)
                         ) {
-                            row.forEach { t ->
+                            row.forEach { (t, label) ->
                                 val isSelected = (perChatThemeVal == t || (perChatThemeVal == null && currentTheme == t))
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .height(36.dp)
-                                        .clip(RoundedCornerShape(8.dp))
+                                        .height(42.dp)
+                                        .clip(RoundedCornerShape(10.dp))
                                         .background(getThemeGradient(t))
                                         .clickable {
                                             chatUser?.email?.let { otherEmail ->
@@ -5778,11 +5836,28 @@ fun ChatWindowScreen(viewModel: EchoChatViewModel, onEditGroup: (User) -> Unit =
                                             showThemeDialog = false
                                         }
                                         .border(
-                                            width = if (isSelected) 2.dp else 0.dp,
+                                            width = if (isSelected) 2.5.dp else 0.dp,
                                             color = Color.White,
-                                            shape = RoundedCornerShape(8.dp)
+                                            shape = RoundedCornerShape(10.dp)
+                                        ),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Text(
+                                        text = label,
+                                        color = Color.White,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        style = androidx.compose.ui.text.TextStyle(
+                                            shadow = androidx.compose.ui.graphics.Shadow(
+                                                color = Color.Black.copy(alpha = 0.6f),
+                                                blurRadius = 3f
+                                            )
                                         )
-                                )
+                                    )
+                                }
+                            }
+                            repeat(3 - row.size) {
+                                Spacer(modifier = Modifier.weight(1f))
                             }
                         }
                         Spacer(modifier = Modifier.height(8.dp))
@@ -6533,6 +6608,43 @@ fun SeenUsersRow(seenUsers: List<User>) {
     }
 }
 
+fun getBubbleGradient(themeKey: String, isOwn: Boolean): Brush {
+    if (!isOwn) {
+        return when (themeKey) {
+            "sunset" -> Brush.linearGradient(listOf(Color(0xFFFFEDD5), Color(0xFFFEE2E2)))
+            "ocean" -> Brush.linearGradient(listOf(Color(0xFFE0F2FE), Color(0xFFE0FCFF)))
+            "forest" -> Brush.linearGradient(listOf(Color(0xFFDCFCE7), Color(0xFFF0FDF4)))
+            "midnight" -> Brush.linearGradient(listOf(Color(0xFF1E293B), Color(0xFF0F172A)))
+            "neon" -> Brush.linearGradient(listOf(Color(0xFF2E1065), Color(0xFF1E1B4B)))
+            "warm" -> Brush.linearGradient(listOf(Color(0xFF451A03), Color(0xFF270900)))
+            "rose" -> Brush.linearGradient(listOf(Color(0xFFFFE4E6), Color(0xFFFFE4E6)))
+            "lavender" -> Brush.linearGradient(listOf(Color(0xFFEEF2FF), Color(0xFFE0E7FF)))
+            "sakura" -> Brush.linearGradient(listOf(Color(0xFFFFF1F2), Color(0xFFFFE4E6)))
+            "cyberpunk" -> Brush.linearGradient(listOf(Color(0xFF111827), Color(0xFF1F2937)))
+            "mint" -> Brush.linearGradient(listOf(Color(0xFFECFDF5), Color(0xFFD1FAE5)))
+            "royal" -> Brush.linearGradient(listOf(Color(0xFFEFF6FF), Color(0xFFDBEAFE)))
+            "fire" -> Brush.linearGradient(listOf(Color(0xFFFEF2F2), Color(0xFFFEE2E2)))
+            else -> Brush.linearGradient(listOf(Color(0xFFE2E8F0), Color(0xFFCBD5E1)))
+        }
+    }
+    return when (themeKey) {
+        "sunset" -> Brush.linearGradient(listOf(Color(0xFFF97316), Color(0xFFEC4899)))
+        "ocean" -> Brush.linearGradient(listOf(Color(0xFF0EA5E9), Color(0xFF06B6D4)))
+        "forest" -> Brush.linearGradient(listOf(Color(0xFF22C55E), Color(0xFF16A34A)))
+        "midnight" -> Brush.linearGradient(listOf(Color(0xFF4F46E5), Color(0xFF06B6D4)))
+        "neon" -> Brush.linearGradient(listOf(Color(0xFFD946EF), Color(0xFF8B5CF6)))
+        "warm" -> Brush.linearGradient(listOf(Color(0xFFD97706), Color(0xFFB45309)))
+        "rose" -> Brush.linearGradient(listOf(Color(0xFFF43F5E), Color(0xFFFDA4AF)))
+        "lavender" -> Brush.linearGradient(listOf(Color(0xFF6366F1), Color(0xFF818CF8)))
+        "sakura" -> Brush.linearGradient(listOf(Color(0xFFEC4899), Color(0xFFF472B6)))
+        "cyberpunk" -> Brush.linearGradient(listOf(Color(0xFF00F2FE), Color(0xFF4FACFE)))
+        "mint" -> Brush.linearGradient(listOf(Color(0xFF10B981), Color(0xFF059669)))
+        "royal" -> Brush.linearGradient(listOf(Color(0xFF1D4ED8), Color(0xFF1E40AF)))
+        "fire" -> Brush.linearGradient(listOf(Color(0xFFEF4444), Color(0xFFDC2626)))
+        else -> Brush.linearGradient(listOf(Color(0xFF6366F1), Color(0xFFA855F7)))
+    }
+}
+
 // Single message item bubble
 @Composable
 fun MessageBubble(
@@ -6550,8 +6662,29 @@ fun MessageBubble(
     onDelete: () -> Unit = {},
     onView: () -> Unit = {},
     senderPhotoUrl: String? = null,
-    onReply: () -> Unit = {}
+    onReply: () -> Unit = {},
+    themeKey: String = "default"
 ) {
+    val animScale = remember { androidx.compose.animation.core.Animatable(0.92f) }
+    val animAlpha = remember { androidx.compose.animation.core.Animatable(0f) }
+    LaunchedEffect(msg.id) {
+        launch {
+            animScale.animateTo(
+                targetValue = 1f,
+                animationSpec = androidx.compose.animation.core.spring(
+                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                    stiffness = androidx.compose.animation.core.Spring.StiffnessLow
+                )
+            )
+        }
+        launch {
+            animAlpha.animateTo(
+                targetValue = 1f,
+                animationSpec = androidx.compose.animation.core.tween(durationMillis = 200)
+            )
+        }
+    }
+
     LaunchedEffect(msg.id) {
         onView()
     }
@@ -6564,19 +6697,26 @@ fun MessageBubble(
     val hasSearchMatch = searchQuery.isNotEmpty() && msg.text.lowercase().contains(searchQuery.lowercase())
     
     val bg = if (msg.isOwn) {
-        Brush.linearGradient(listOf(Color(0xFF6366F1), Color(0xFFA855F7)))
+        getBubbleGradient(themeKey, isOwn = true)
     } else {
         if (hasSearchMatch) {
             Brush.linearGradient(listOf(Color(0xFFFEF08A), Color(0xFFFDE047))) // Highlighted matching message
         } else {
-            Brush.linearGradient(listOf(Color(0xFFE2E8F0), Color(0xFFCBD5E1)))
+            getBubbleGradient(themeKey, isOwn = false)
         }
     }
     
     val contentColor = if (msg.isOwn) {
         Color.White
     } else {
-        if (hasSearchMatch) Color(0xFF854D0E) else Color.Black
+        if (hasSearchMatch) {
+            Color(0xFF854D0E)
+        } else {
+            when (themeKey) {
+                "midnight", "neon", "warm", "cyberpunk" -> Color.White
+                else -> Color.Black
+            }
+        }
     }
 
     var isTranslated by remember { mutableStateOf(false) }
@@ -6763,6 +6903,11 @@ fun MessageBubble(
                 Box(
                     modifier = Modifier
                         .padding(vertical = 4.dp, horizontal = 8.dp)
+                        .graphicsLayer {
+                            scaleX = animScale.value
+                            scaleY = animScale.value
+                            alpha = animAlpha.value
+                        }
                         .background(bg, shape = androidx.compose.foundation.shape.RoundedCornerShape(14.dp))
                         .border(
                             width = if (hasSearchMatch) 2.dp else 0.dp,
@@ -7057,6 +7202,12 @@ fun getThemeGradient(key: String): Brush {
         "neon" -> Brush.linearGradient(listOf(Color(0xFF0D0221), Color(0xFF1A0533)))
         "warm" -> Brush.linearGradient(listOf(Color(0xFF1A0A00), Color(0xFF3D1A00)))
         "rose" -> Brush.linearGradient(listOf(Color(0xFFF43F5E), Color(0xFFFB923C)))
+        "lavender" -> Brush.linearGradient(listOf(Color(0xFF818CF8), Color(0xFFC7D2FE)))
+        "sakura" -> Brush.linearGradient(listOf(Color(0xFFFDA4AF), Color(0xFFFEE2E2)))
+        "cyberpunk" -> Brush.linearGradient(listOf(Color(0xFF00F2FE), Color(0xFF4FACFE)))
+        "mint" -> Brush.linearGradient(listOf(Color(0xFF34D399), Color(0xFF059669)))
+        "royal" -> Brush.linearGradient(listOf(Color(0xFF1E3A8A), Color(0xFF3B82F6)))
+        "fire" -> Brush.linearGradient(listOf(Color(0xFFEF4444), Color(0xFFF59E0B)))
         else -> Brush.linearGradient(listOf(Color(0xFF0F0C29), Color(0xFF302B63), Color(0xFF24243E)))
     }
 }
@@ -7539,27 +7690,59 @@ fun ProfileModalDialog(viewModel: EchoChatViewModel, onDismiss: () -> Unit) {
                             Text("অ্যাপের ব্যাকগ্রাউন্ড থিম নির্বাচন করুণঃ", fontWeight = FontWeight.SemiBold)
 
                             // Render color buttons
-                            val themes = listOf("default", "sunset", "ocean", "forest", "midnight", "neon", "warm", "rose")
+                            val themes = listOf(
+                                "default" to "ডিফল্ট",
+                                "sunset" to "গোধূলি",
+                                "ocean" to "মহাসাগর",
+                                "forest" to "অরণ্য",
+                                "midnight" to "মধ্যরাত",
+                                "neon" to "নিয়ন",
+                                "warm" to "উষ্ণ",
+                                "rose" to "গোলাপ",
+                                "lavender" to "ল্যাভেন্ডার",
+                                "sakura" to "সাকুরা",
+                                "cyberpunk" to "সাইবার",
+                                "mint" to "পুদিনা",
+                                "royal" to "রাজকীয়",
+                                "fire" to "আগুন"
+                            )
                             Column {
-                                themes.chunked(4).forEach { row ->
+                                themes.chunked(3).forEach { row ->
                                     Row(
                                         modifier = Modifier.fillMaxWidth(),
                                         horizontalArrangement = Arrangement.spacedBy(8.dp)
                                     ) {
-                                        row.forEach { t ->
+                                        row.forEach { (t, label) ->
                                             Box(
                                                 modifier = Modifier
                                                     .weight(1f)
-                                                    .height(36.dp)
-                                                    .clip(RoundedCornerShape(8.dp))
+                                                    .height(42.dp)
+                                                    .clip(RoundedCornerShape(10.dp))
                                                     .background(getThemeGradient(t))
                                                     .clickable { viewModel.applyTheme(t) }
                                                     .border(
-                                                        width = if (currentTheme == t) 2.dp else 0.dp,
+                                                        width = if (currentTheme == t) 2.5.dp else 0.dp,
                                                         color = Color.White,
-                                                        shape = RoundedCornerShape(8.dp)
+                                                        shape = RoundedCornerShape(10.dp)
+                                                    ),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Text(
+                                                    text = label,
+                                                    color = Color.White,
+                                                    fontSize = 11.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    style = androidx.compose.ui.text.TextStyle(
+                                                        shadow = androidx.compose.ui.graphics.Shadow(
+                                                            color = Color.Black.copy(alpha = 0.6f),
+                                                            blurRadius = 3f
+                                                        )
                                                     )
-                                            )
+                                                )
+                                            }
+                                        }
+                                        repeat(3 - row.size) {
+                                            Spacer(modifier = Modifier.weight(1f))
                                         }
                                     }
                                     Spacer(modifier = Modifier.height(8.dp))
